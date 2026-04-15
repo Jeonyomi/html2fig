@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "html2fig-local export schema",
+  "type": "object",
+  "required": ["meta", "root", "nodes"],
+  "properties": {
+    "meta": {
+      "type": "object",
+      "required": ["title", "url", "capturedAt", "viewport", "page", "format"]
+    },
+    "root": {
+      "type": "object",
+      "required": ["id", "type", "name", "rect"]
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "parentId", "type", "rect"]
+      }
+    }
+  }
+}
