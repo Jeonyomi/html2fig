@@ -88,6 +88,25 @@ This is useful when the full page contains browser chrome, floating widgets, or 
 
 You can also load the same script as a local snippet in DevTools and run it repeatedly.
 
+### Option C: clipboard-first workflow
+
+The capture script now also supports clipboard handoff:
+
+```js
+await html2figLocal.copyCaptureToClipboard()
+```
+
+There is also a bookmarklet-style loader source at:
+
+- `capture/bookmarklet-loader.js`
+
+Intended flow:
+1. trigger capture from the webpage
+2. copy JSON to clipboard
+3. open the Figma plugin
+4. use **Paste from Clipboard**
+5. import into Figma
+
 ## Example workflow
 
 1. Open a webpage

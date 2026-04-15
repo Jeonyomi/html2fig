@@ -63,6 +63,7 @@
   <textarea id="payload" placeholder="Paste html2fig JSON here"></textarea>
   <div class="row">
     <button class="primary" id="importBtn">Import to Figma</button>
+    <button class="secondary" id="pasteBtn">Paste from Clipboard</button>
     <button class="secondary" id="sampleBtn">Insert sample stub</button>
   </div>
   <div class="status" id="status"></div>
@@ -77,6 +78,18 @@
         nodes: []
       }, null, 2);
       status.textContent = 'Inserted sample stub.';
+    });
+
+    document.getElementById('pasteBtn').addEventListener('click', async () => {
+      try {
+        if (!navigator.clipboard || !navigator.clipboard.readText) {
+          throw new Error('Clipboard read is unavailable in this Figma environment');
+        }
+        payload.value = await navigator.clipboard.readText();
+        status.textContent = 'Clipboard pasted into importer.';
+      } catch (error) {
+        status.textContent = 'Clipboard read failed: ' + error.message;
+      }
     });
 
     document.getElementById('importBtn').addEventListener('click', () => {

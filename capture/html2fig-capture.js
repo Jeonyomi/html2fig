@@ -249,10 +249,21 @@
     return data;
   }
 
+  async function copyCaptureToClipboard(options = {}) {
+    const data = captureCurrentPage(options);
+    const text = JSON.stringify(data, null, 2);
+    if (!navigator.clipboard || !navigator.clipboard.writeText) {
+      throw new Error('Clipboard API unavailable in this browser context');
+    }
+    await navigator.clipboard.writeText(text);
+    return data;
+  }
+
   window.html2figLocal = {
     captureCurrentPage,
     downloadCapture,
+    copyCaptureToClipboard,
   };
 
-  console.log('[html2fig-local] Ready. Run html2figLocal.captureCurrentPage() or html2figLocal.downloadCapture(). Optional: pass { selector: "#app" }.');
+  console.log('[html2fig-local] Ready. Run html2figLocal.captureCurrentPage(), html2figLocal.downloadCapture(), or html2figLocal.copyCaptureToClipboard(). Optional: pass { selector: "#app" }.');
 })();

@@ -1,0 +1,8 @@
+{
+  "name": "html2fig-local",
+  "version": "0.2.0",
+  "private": true,
+  "scripts": {
+    "serve:fixtures": "python -m http.server 4173 -d fixtures"
+  }
+}
