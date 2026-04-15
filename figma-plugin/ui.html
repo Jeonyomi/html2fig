@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>html2fig importer</title>
+  <style>
+    body {
+      font-family: Inter, system-ui, sans-serif;
+      margin: 0;
+      padding: 16px;
+      color: #102a43;
+      background: #f7fafc;
+    }
+    h1 {
+      font-size: 16px;
+      margin: 0 0 10px;
+    }
+    p {
+      font-size: 12px;
+      line-height: 1.5;
+      margin: 0 0 10px;
+      color: #486581;
+    }
+    textarea {
+      width: 100%;
+      min-height: 280px;
+      box-sizing: border-box;
+      border: 1px solid #cbd2d9;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      resize: vertical;
+      background: #fff;
+    }
+    .row {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    button {
+      border: none;
+      border-radius: 8px;
+      padding: 10px 12px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .primary { background: #0f62fe; color: white; }
+    .secondary { background: #e4e7eb; color: #102a43; }
+    .status {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #486581;
+      min-height: 18px;
+    }
+  </style>
+</head>
+<body>
+  <h1>html2fig importer</h1>
+  <p>Paste JSON exported from <code>html2figLocal.captureCurrentPage()</code> or <code>downloadCapture()</code>, then import it into the current Figma page.</p>
+  <textarea id="payload" placeholder="Paste html2fig JSON here"></textarea>
+  <div class="row">
+    <button class="primary" id="importBtn">Import to Figma</button>
+    <button class="secondary" id="sampleBtn">Insert sample stub</button>
+  </div>
+  <div class="status" id="status"></div>
+  <script>
+    const payload = document.getElementById('payload');
+    const status = document.getElementById('status');
+
+    document.getElementById('sampleBtn').addEventListener('click', () => {
+      payload.value = JSON.stringify({
+        meta: { title: 'Sample', url: 'https://example.com', capturedAt: new Date().toISOString(), viewport: { width: 1440, height: 900 }, page: { width: 1440, height: 900 }, format: 'html2fig-local@0.2' },
+        root: { id: 'root', type: 'frame', name: 'Sample Page', rect: { x: 0, y: 0, width: 1440, height: 900 } },
+        nodes: []
+      }, null, 2);
+      status.textContent = 'Inserted sample stub.';
+    });
+
+    document.getElementById('importBtn').addEventListener('click', () => {
+      try {
+        const parsed = JSON.parse(payload.value);
+        parent.postMessage({ pluginMessage: { type: 'import-html2fig', payload: parsed } }, '*');
+        status.textContent = 'Import sent to plugin…';
+      } catch (error) {
+        status.textContent = 'Invalid JSON: ' + error.message;
+      }
+    });
+
+    window.onmessage = (event) => {
+      const msg = event.data.pluginMessage;
+      if (!msg) return;
+      if (msg.type === 'status') {
+        status.textContent = msg.message;
+      }
+    };
+  </script>
+</body>
+</html>

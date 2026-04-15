@@ -1,0 +1,12 @@
+{
+  "name": "html2fig-local importer",
+  "id": "html2fig-local-importer",
+  "api": "1.0.0",
+  "editorType": ["figma"],
+  "main": "code.js",
+  "ui": "ui.html",
+  "networkAccess": {
+    "allowedDomains": ["*"],
+    "reasoning": "Imports remote and local image URLs referenced by html2fig capture output."
+  }
+}

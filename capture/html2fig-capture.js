@@ -1,26 +1,36 @@
 (() => {
   const TEXT_NODE = 3;
+  const IGNORED_TAGS = new Set(['script', 'style', 'noscript', 'template']);
 
   function px(value) {
     const n = Number.parseFloat(value || '0');
     return Number.isFinite(n) ? n : 0;
   }
 
+  function normalizeText(value) {
+    return (value || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function safeName(value, fallback) {
+    const name = normalizeText(value);
+    return name || fallback;
+  }
+
   function isVisibleElement(el) {
     if (!(el instanceof Element)) return false;
     const style = window.getComputedStyle(el);
-    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+    if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return false;
     const rect = el.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return false;
     return true;
   }
 
   function isMeaningfulText(text) {
-    return !!text && text.replace(/\s+/g, ' ').trim().length > 0;
+    return normalizeText(text).length > 0;
   }
 
   function colorToFigma(color) {
-    if (!color || color === 'transparent') return null;
+    if (!color || color === 'transparent' || color === 'rgba(0, 0, 0, 0)') return null;
     const m = color.match(/rgba?\(([^)]+)\)/i);
     if (!m) return null;
     const parts = m[1].split(',').map((s) => s.trim());
@@ -38,9 +48,16 @@
     };
   }
 
+  function extractBackgroundImage(style) {
+    const backgroundImage = style.backgroundImage || '';
+    const match = backgroundImage.match(/url\((['"]?)(.*?)\1\)/i);
+    return match ? match[2] : null;
+  }
+
   function extractCommonStyle(el, style) {
     return {
       backgroundColor: colorToFigma(style.backgroundColor),
+      backgroundImage: extractBackgroundImage(style),
       color: colorToFigma(style.color),
       borderRadius: {
         topLeft: px(style.borderTopLeftRadius),
@@ -61,6 +78,7 @@
       textAlign: style.textAlign,
       overflow: style.overflow,
       objectFit: style.objectFit || null,
+      zIndex: style.zIndex,
     };
   }
 
@@ -73,6 +91,17 @@
     };
   }
 
+  function getElementName(el, tag) {
+    return safeName(
+      el.getAttribute('data-testid') ||
+        el.getAttribute('aria-label') ||
+        el.getAttribute('name') ||
+        el.id ||
+        el.className,
+      tag,
+    );
+  }
+
   function buildElementNode(el, parentId) {
     const style = window.getComputedStyle(el);
     const rect = el.getBoundingClientRect();
@@ -82,7 +111,7 @@
       parentId,
       type: 'frame',
       tag,
-      name: el.getAttribute('data-testid') || el.getAttribute('aria-label') || el.id || el.className || tag,
+      name: getElementName(el, tag),
       rect: rectForNode(rect),
       style: extractCommonStyle(el, style),
       children: [],
@@ -92,6 +121,11 @@
       base.type = 'image';
       base.src = el.currentSrc || el.getAttribute('src') || null;
       base.alt = el.getAttribute('alt') || '';
+    } else if (base.style.backgroundImage) {
+      base.backgroundImageNode = {
+        type: 'image-ref',
+        src: base.style.backgroundImage,
+      };
     }
 
     return base;
@@ -103,16 +137,16 @@
     const rects = Array.from(range.getClientRects()).filter((r) => r.width > 0 && r.height > 0);
     if (rects.length === 0) return null;
 
-    const firstRect = rects[0];
     const style = window.getComputedStyle(parentEl);
-    const text = textNode.textContent.replace(/\s+/g, ' ').trim();
+    const text = normalizeText(textNode.textContent);
     return {
       id: crypto.randomUUID(),
       parentId,
       type: 'text',
       name: text.slice(0, 40),
       text,
-      rect: rectForNode(firstRect),
+      rect: rectForNode(rects[0]),
+      rects: rects.map(rectForNode),
       style: {
         color: colorToFigma(style.color),
         fontFamily: style.fontFamily,
@@ -125,7 +159,7 @@
     };
   }
 
-  function walk(node, parentEl, parentId, out) {
+  function walk(node, parentEl, parentId, out, options) {
     if (node.nodeType === TEXT_NODE) {
       if (!parentEl || !isMeaningfulText(node.textContent)) return;
       const textNode = buildTextNode(node, parentEl, parentId);
@@ -134,17 +168,27 @@
     }
 
     if (!(node instanceof Element)) return;
+    const tag = node.tagName.toLowerCase();
+    if (IGNORED_TAGS.has(tag)) return;
     if (!isVisibleElement(node)) return;
+    if (options.selector && !node.closest(options.selector) && node !== options.rootElement) return;
 
     const current = buildElementNode(node, parentId);
     out.push(current);
 
     for (const child of Array.from(node.childNodes)) {
-      walk(child, node, current.id, out);
+      walk(child, node, current.id, out, options);
     }
   }
 
-  function captureCurrentPage() {
+  function resolveRootElement(selector) {
+    if (!selector) return document.body;
+    return document.querySelector(selector) || document.body;
+  }
+
+  function captureCurrentPage(options = {}) {
+    const rootElement = resolveRootElement(options.selector);
+    const rootRect = rootElement.getBoundingClientRect();
     const bodyRect = document.body.getBoundingClientRect();
     const root = {
       meta: {
@@ -159,31 +203,40 @@
           width: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth, Math.round(bodyRect.width)),
           height: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight),
         },
-        format: 'html2fig-local@0.1',
+        selection: options.selector || 'body',
+        format: 'html2fig-local@0.2',
       },
       root: {
         id: 'root',
         type: 'frame',
-        name: document.title || 'Page',
-        rect: {
-          x: 0,
-          y: 0,
-          width: Math.max(document.documentElement.clientWidth, document.body.clientWidth, window.innerWidth),
-          height: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight),
-        },
+        name: safeName(document.title, 'Page'),
+        rect: options.selector
+          ? rectForNode(rootRect)
+          : {
+              x: 0,
+              y: 0,
+              width: Math.max(document.documentElement.clientWidth, document.body.clientWidth, window.innerWidth),
+              height: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight),
+            },
       },
       nodes: [],
     };
 
-    for (const child of Array.from(document.body.childNodes)) {
-      walk(child, document.body, 'root', root.nodes);
+    const walkOptions = {
+      selector: options.selector || null,
+      rootElement,
+    };
+
+    const startNodes = options.selector ? [rootElement] : Array.from(document.body.childNodes);
+    for (const child of startNodes) {
+      walk(child, options.selector ? rootElement.parentElement || document.body : document.body, 'root', root.nodes, walkOptions);
     }
 
     return root;
   }
 
-  function downloadCapture(filename = 'html2fig-export.json') {
-    const data = captureCurrentPage();
+  function downloadCapture(filename = 'html2fig-export.json', options = {}) {
+    const data = captureCurrentPage(options);
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -201,5 +254,5 @@
     downloadCapture,
   };
 
-  console.log('[html2fig-local] Ready. Run html2figLocal.captureCurrentPage() or html2figLocal.downloadCapture().');
+  console.log('[html2fig-local] Ready. Run html2figLocal.captureCurrentPage() or html2figLocal.downloadCapture(). Optional: pass { selector: "#app" }.');
 })();

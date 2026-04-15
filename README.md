@@ -2,6 +2,8 @@
 
 Minimal local MVP for **current HTML capture -> Figma-friendly JSON export**.
 
+See also: `ROADMAP.md` for the product goal, editable MVP definition, and success criteria.
+
 ## Goal
 
 This project captures the **currently rendered page in the browser** and exports a JSON structure that is suitable as an intermediate format for a future Figma importer/plugin.
@@ -19,6 +21,7 @@ This MVP is intentionally narrow:
 - bounding boxes via `getBoundingClientRect()`
 - basic computed style information:
   - background color
+  - background image URL extraction
   - text color
   - border radius
   - border width/color
@@ -26,6 +29,8 @@ This MVP is intentionally narrow:
   - box shadow
   - text alignment
   - font family / size / weight / line-height / letter spacing
+- multi-rect text ranges (`rects`) for wrapped text
+- optional subtree capture via selector
 
 ## Output model
 
@@ -44,8 +49,8 @@ It is intended as the intermediate structure for a later importer.
 
 ## Files
 
-- `capture/html2fig-capture.js` — browser-side capture script
-- `schema/figma-friendly-schema.json` — minimal schema description
+- `capture/html2fig-capture.js` ??browser-side capture script
+- `schema/figma-friendly-schema.json` ??minimal schema description
 
 ## Usage
 
@@ -70,6 +75,15 @@ html2figLocal.downloadCapture()
 
 This downloads `html2fig-export.json`.
 
+### Capture a specific subtree only
+
+```js
+html2figLocal.captureCurrentPage({ selector: '#app' })
+html2figLocal.downloadCapture('app-export.json', { selector: '#app' })
+```
+
+This is useful when the full page contains browser chrome, floating widgets, or unrelated layout outside the target surface.
+
 ### Option B: save as a local snippet/bookmarklet source
 
 You can also load the same script as a local snippet in DevTools and run it repeatedly.
@@ -83,7 +97,7 @@ You can also load the same script as a local snippet in DevTools and run it repe
 
 ## Current limitations
 
-This is an MVP and does **not** yet handle everything well.
+This is still an MVP and does **not** yet handle everything well.
 
 Known limitations:
 - no Figma plugin/importer yet
@@ -93,17 +107,65 @@ Known limitations:
 - no responsive variant capture
 - no interaction state capture (hover/focus/open/active)
 - element hierarchy is DOM-driven, not layout-optimized
-- text rects use the first client rect only
-- background images are not extracted as first-class image nodes
+- background images are extracted only as URL references, not binary assets
+- no font asset packaging
+
+## What was improved in this iteration
+
+- optional selector-based capture
+- wrapped text now exports `rects` in addition to a primary `rect`
+- background-image URL extraction
+- basic ignored-tag filtering (`script`, `style`, `noscript`, `template`)
+- safer node naming and metadata for selection scope
+
+## Fixtures / validation baseline
+
+A small manual validation set now lives under `fixtures/`:
+
+- `fixtures/basic-card.html`
+- `fixtures/wrapped-text.html`
+- `fixtures/background-image.html`
+- `fixtures/expected-output-notes.md`
+
+Open a fixture in Chrome, inject `capture/html2fig-capture.js`, and run capture against either the full page or a selector root.
+
+These fixtures are not a full automated test suite yet, but they provide a repeatable baseline for:
+- visible frame/text/image extraction
+- selector-based capture
+- wrapped text `rects`
+- background-image URL extraction
+
+## Figma plugin MVP scaffold
+
+A first-pass importer scaffold now exists under:
+
+- `figma-plugin/manifest.json`
+- `figma-plugin/code.js`
+- `figma-plugin/ui.html`
+
+What it currently does:
+- paste html2fig JSON into the plugin UI
+- create a root frame in Figma
+- import basic `frame`, `text`, and `image` nodes
+- attempt remote image fetching for `img` sources
+
+What it does **not** yet fully solve:
+- robust font mapping
+- background-image fills as first-class Figma image fills
+- layout optimization / auto-layout inference
+- precise nested relative positioning for all cases
+- production-grade asset packaging
 
 ## Recommended next steps
 
-1. Add a Figma plugin that imports this JSON
-2. Infer grouping/frame hierarchy more intelligently
-3. Add support for background images and SVG mapping
-4. Add a selectable-area export mode
+1. Improve importer fidelity for nested coordinates and fills
+2. Map background-image references to Figma image fills
+3. Add first-class SVG mapping and canvas export fallbacks
+4. Add asset packaging / image download helpers
 5. Add a cleaner bookmarklet or extension wrapper
+6. Add an automated browser test harness around the fixtures
 
 ## One-line summary
 
 `html2fig-local` is a practical local MVP for capturing the current browser-rendered HTML UI and exporting a Figma-friendly editable layer structure in JSON form.
+
