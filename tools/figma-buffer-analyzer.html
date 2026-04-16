@@ -119,6 +119,7 @@
         <button id="compareBtn">Compare A/B</button>
         <button id="compare3Btn">Compare A/B/C</button>
         <button id="exportCompareBtn" class="secondary">Export compare JSON</button>
+        <button id="loadKnownSamplesBtn" class="secondary">Load known real samples</button>
         <button id="compareSampleBtn" class="secondary">Load compare scaffold</button>
         <button id="compareClearBtn" class="secondary">Clear compare</button>
       </div>
@@ -198,6 +199,11 @@
         <div class="label">Delta clusters</div>
         <pre id="compareClusterOut">(empty)</pre>
       </div>
+
+      <div class="block">
+        <div class="label">Auto summary</div>
+        <pre id="compareAutoOut">(empty)</pre>
+      </div>
     </div>
   </div>
 
@@ -220,6 +226,7 @@
     const compareDeltaOut = document.getElementById('compareDeltaOut');
     const compare3Out = document.getElementById('compare3Out');
     const compareClusterOut = document.getElementById('compareClusterOut');
+    const compareAutoOut = document.getElementById('compareAutoOut');
 
     function resetOutputs() {
       summaryOut.textContent = '(empty)';
@@ -239,6 +246,7 @@
       compareDeltaOut.textContent = '(empty)';
       compare3Out.textContent = '(empty)';
       compareClusterOut.textContent = '(empty)';
+      compareAutoOut.textContent = '(empty)';
     }
 
     function stripWrapper(text, tag) {
@@ -651,27 +659,55 @@
       lines.push('');
       if (!clusters.length) {
         lines.push('(no clusters)');
-        return lines.join('\n');
+        return { text: lines.join('\n'), clusters: [] };
       }
+      const clusterData = [];
       clusters.forEach((cluster, index) => {
+        const preview = cluster.items.slice(0, 8).map((entry) => `t${entry.tailOffset}: ${entry.a.toString(16).padStart(2, '0')} -> ${entry.b.toString(16).padStart(2, '0')}`);
         lines.push(`Cluster ${index + 1}`);
         lines.push(`  tail range: ${cluster.start}..${cluster.end}`);
         lines.push(`  absolute range: ${prefixLength + cluster.start}..${prefixLength + cluster.end}`);
         lines.push(`  differing bytes in cluster: ${cluster.items.length}`);
-        const preview = cluster.items.slice(0, 8).map((entry) => `t${entry.tailOffset}: ${entry.a.toString(16).padStart(2, '0')} -> ${entry.b.toString(16).padStart(2, '0')}`);
         lines.push(`  preview: ${preview.join(', ')}`);
         lines.push('');
+        clusterData.push({
+          index: index + 1,
+          tailStart: cluster.start,
+          tailEnd: cluster.end,
+          absoluteStart: prefixLength + cluster.start,
+          absoluteEnd: prefixLength + cluster.end,
+          differingBytes: cluster.items.length,
+          preview,
+        });
       });
       lines.push('Interpretation');
       lines.push('-------------');
       lines.push('Clusters are candidate object/property subsegments inside the differing tail region.');
+      return { text: lines.join('\n'), clusters: clusterData };
+    }
+
+    function buildAutoSummary(prefixLength, suffixLength, firstDiff, delta, clusters) {
+      const lines = [];
+      lines.push(`Shared prefix: ${prefixLength} bytes`);
+      lines.push(`Shared suffix: ${suffixLength} bytes`);
+      lines.push(`First diff: ${firstDiff}`);
+      lines.push(`Tail A/B lengths: ${delta.tailALength} / ${delta.tailBLength}`);
+      lines.push(`Cluster count: ${clusters.length}`);
+      lines.push('');
+      if (prefixLength > 10000) lines.push('- Large shared envelope detected.');
+      if (firstDiff >= 0 && prefixLength > 0) lines.push('- Differences are concentrated after the shared prefix.');
+      if (clusters.length <= 3) lines.push('- Tail differences look segment-like rather than uniformly scattered.');
+      if (clusters.length > 3) lines.push('- Tail differences are split across multiple candidate subsegments.');
+      if (delta.tailALength !== delta.tailBLength) lines.push('- Tail length mismatch suggests object-specific payload size variation.');
+      lines.push('');
+      lines.push('Working read: common framing + object-specific tail remains the strongest hypothesis.');
       return lines.join('\n');
     }
 
-    function buildCompareExport(a, b, prefixLength, suffixLength, firstDiff) {
-      const delta = buildTailDelta(a.bufferBytes, b.bufferBytes, Math.max(0, prefixLength));
+    function buildCompareExport(a, b, prefixLength, suffixLength, firstDiff, delta, clusters, autoSummary) {
       return {
         generatedAt: new Date().toISOString(),
+        mode: 'compare-2',
         sampleA: {
           mimeTypes: a.report?.mimeTypes || [],
           metadata: a.metadataJson || null,
@@ -691,6 +727,8 @@
           commonSuffixLength: suffixLength,
           firstDifferingOffset: firstDiff,
           tailDelta: delta,
+          deltaClusters: clusters,
+          autoSummary,
         },
       };
     }
@@ -831,8 +869,11 @@
 
         const delta = buildTailDelta(a.bufferBytes, b.bufferBytes, Math.max(0, prefixLength));
         compareDeltaOut.textContent = renderTailDelta(delta);
-        compareClusterOut.textContent = renderDeltaClusters(delta, Math.max(0, prefixLength));
-        lastCompareExport = buildCompareExport(a, b, prefixLength, suffixLength, firstDiff);
+        const clusterResult = renderDeltaClusters(delta, Math.max(0, prefixLength));
+        compareClusterOut.textContent = clusterResult.text;
+        const autoSummary = buildAutoSummary(prefixLength, suffixLength, firstDiff, delta, clusterResult.clusters);
+        compareAutoOut.textContent = autoSummary;
+        lastCompareExport = buildCompareExport(a, b, prefixLength, suffixLength, firstDiff, delta, clusterResult.clusters, autoSummary);
       } catch (error) {
         compareSummaryOut.textContent = `Compare failed: ${error.message}`;
       }
@@ -859,6 +900,14 @@
         }
         const summary = buildThreeWaySummary(a, b, c);
         compare3Out.textContent = summary.text;
+        compareAutoOut.textContent = [
+          `3-way shared prefix: ${summary.sharedThreePrefix}`,
+          `A/B: ${summary.abPrefix}`,
+          `A/C: ${summary.acPrefix}`,
+          `B/C: ${summary.bcPrefix}`,
+          '',
+          'Working read: use this to test whether a mixed scene preserves the same global framing as single-object scenes.'
+        ].join('\n');
         lastCompareExport = {
           generatedAt: new Date().toISOString(),
           mode: 'compare-3',
@@ -869,6 +918,24 @@
         };
       } catch (error) {
         compare3Out.textContent = `3-way compare failed: ${error.message}`;
+      }
+    });
+    document.getElementById('loadKnownSamplesBtn').addEventListener('click', async () => {
+      try {
+        const [textResponse, rectResponse] = await Promise.all([
+          fetch('../export/clipboard-report-1776323937407.json'),
+          fetch('../export/clipboard-report-1776324639880.json'),
+        ]);
+        if (!textResponse.ok || !rectResponse.ok) {
+          throw new Error('Known sample fetch failed');
+        }
+        compareAEl.value = JSON.stringify(await textResponse.json(), null, 2);
+        compareBEl.value = JSON.stringify(await rectResponse.json(), null, 2);
+        compareCEl.value = '';
+        resetCompareOutputs();
+        compareAutoOut.textContent = 'Loaded known real samples: A=text-only real, B=rectangle-only real.';
+      } catch (error) {
+        compareAutoOut.textContent = `Failed to load known real samples: ${error.message}`;
       }
     });
     document.getElementById('exportCompareBtn').addEventListener('click', () => {
