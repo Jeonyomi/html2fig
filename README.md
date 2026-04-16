@@ -22,6 +22,7 @@ The project already has working pieces for:
 - clipboard wrapper experiments
 - clipboard inspection and export
 - Figma plugin import scaffolding
+- a practical DOM -> Figma-oriented scene export path for deck/page import MVP
 
 The main blocker for native paste is now clearly isolated:
 
@@ -153,7 +154,13 @@ If native paste remains blocked after enough minimal-sample analysis, the practi
 
 - **Chrome Extension -> Local Bridge Server -> Figma Plugin**
 
-But current work is still prioritizing the native-paste serializer problem first.
+Current MVP direction for real documents like `gntb_deck/index.html` is:
+
+- capture DOM into richer `html2fig-local@0.3` scene JSON
+- preserve enough layout/style hints for cards, sections, headings, lists, and slide-like frames
+- import that JSON through the Figma plugin as editable nodes
+
+This is not native paste, but it is the current shortest path to a usable Figma import workflow.
 
 ## Related docs
 
