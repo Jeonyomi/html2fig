@@ -1,190 +1,167 @@
-# html2fig-local
+# html2fig
 
-Minimal local MVP for **current HTML capture -> Figma-friendly JSON export**.
+`html2fig` is now aimed at one specific end-user flow:
 
-See also: `ROADMAP.md` for the product goal, editable MVP definition, and success criteria.
+1. click a browser action
+2. copy the current page/selection
+3. go to Figma
+4. press `Ctrl+V`
+5. get editable structure on the canvas
 
-## Goal
+That means the current top-priority problem is **not** HTML capture anymore.
+The active problem is:
 
-This project captures the **currently rendered page in the browser** and exports a JSON structure that is suitable as an intermediate format for a future Figma importer/plugin.
+> **how to generate a Figma-native clipboard `data-buffer` scene payload from captured HTML/IR**
 
-This MVP is intentionally narrow:
-- browser-side capture only
-- JSON export only
-- no Figma plugin yet
+## Current status
 
-## What it captures
+The project already has working pieces for:
 
-- visible DOM elements
-- visible text nodes
-- images (`img`)
-- bounding boxes via `getBoundingClientRect()`
-- basic computed style information:
-  - background color
-  - background image URL extraction
-  - text color
-  - border radius
-  - border width/color
-  - opacity
-  - box shadow
-  - text alignment
-  - font family / size / weight / line-height / letter spacing
-- multi-rect text ranges (`rects`) for wrapped text
-- optional subtree capture via selector
+- browser-side HTML capture
+- intermediate JSON / IR generation
+- clipboard wrapper experiments
+- clipboard inspection and export
+- Figma plugin import scaffolding
 
-## Output model
+The main blocker for native paste is now clearly isolated:
 
-The exporter creates a JSON document with:
-- `meta`
-- `root`
-- `nodes`
+- realistic wrapper HTML alone is **not enough**
+- realistic metadata alone is **not enough**
+- fallback `text/html` richness is **not enough**
+- the missing piece is the real **scene serializer** used in `data-buffer`
 
-Node types currently used:
-- `frame`
-- `text`
-- `image`
+## What has been confirmed
 
-The output is **Figma-friendly**, not yet a direct Figma plugin payload.
-It is intended as the intermediate structure for a later importer.
+Real Figma clipboard samples show that native copy uses HTML containing:
 
-## Files
+- `data-metadata="<!--(figmeta)...(/figmeta)-->"`
+- `data-buffer="<!--(figma)...(/figma)-->"`
 
-- `capture/html2fig-capture.js` ??browser-side capture script
-- `schema/figma-friendly-schema.json` ??minimal schema description
+Observed metadata baseline:
 
-## Usage
-
-### Option A: paste into DevTools console
-
-1. Open the target webpage in Chrome.
-2. Open DevTools.
-3. Paste the contents of `capture/html2fig-capture.js` into the console.
-4. Run:
-
-```js
-html2figLocal.captureCurrentPage()
+```json
+{
+  "fileKey": "...",
+  "pasteID": 1234567890,
+  "dataType": "scene"
+}
 ```
 
-This returns the JSON object in memory.
+Observed buffer facts:
 
-To download it directly:
+- base64-decoded `data-buffer` is **not plain JSON**
+- real payloads begin with the `fig-kiwij...` family prefix
+- real payloads look like a binary/custom serialized scene format
+- synthetic html2fig JSON payloads are ignored by Figma, even with realistic wrapper structure
 
-```js
-html2figLocal.downloadCapture()
-```
+## Working hypothesis
 
-This downloads `html2fig-export.json`.
+The unknown transform is now treated as:
 
-### Capture a specific subtree only
+> **HTML capture IR -> Figma-native scene binary**
 
-```js
-html2figLocal.captureCurrentPage({ selector: '#app' })
-html2figLocal.downloadCapture('app-export.json', { selector: '#app' })
-```
+So the current reverse-engineering approach is evidence-first:
 
-This is useful when the full page contains browser chrome, floating widgets, or unrelated layout outside the target surface.
+1. collect real Figma-authored clipboard samples
+2. compare real-vs-real samples
+3. isolate stable framing vs object-specific segments
+4. infer serializer layers
+5. only then attempt synthetic scene generation
 
-### Option B: save as a local snippet/bookmarklet source
+## Why the current tooling exists
 
-You can also load the same script as a local snippet in DevTools and run it repeatedly.
+Recent tooling work is focused on serializer reverse engineering, not on generic capture polish.
 
-### Option C: clipboard-first workflow
+The analyzer and inspector now exist to answer questions like:
 
-The capture script now also supports clipboard handoff:
+- how much of the buffer is shared between samples?
+- where is the first divergence?
+- is the difference concentrated in a tail/object block?
+- do text-only and rectangle-only samples share a large envelope?
+- are there field / chunk / length / varint-like patterns?
 
-```js
-await html2figLocal.copyCaptureToClipboard()
-```
+## Current real-sample workflow
 
-There is also a bookmarklet-style loader source at:
+Use only **real Figma-authored clipboard copies** for serializer analysis.
+Do **not** treat extension-generated probe payloads as reverse-engineering evidence.
 
-- `capture/bookmarklet-loader.js`
+Recommended minimal sample order:
 
-Intended flow:
-1. trigger capture from the webpage
-2. copy JSON to clipboard
-3. open the Figma plugin
-4. use **Paste from Clipboard**
-5. import into Figma
+1. rectangle-only
+2. text-only
+3. rectangle + text
+4. small frame with children
+5. larger complex scene
 
-## Example workflow
+## Tools
 
-1. Open a webpage
-2. Inject the script
-3. Export JSON
-4. Feed that JSON into a future Figma plugin/importer
+### Clipboard inspector
 
-## Current limitations
+- `tools/clipboard-inspector.html`
 
-This is still an MVP and does **not** yet handle everything well.
+Use it to:
+- paste clipboard content from a real Figma copy
+- inspect MIME types
+- extract wrapped `figmeta` / `figma` payloads
+- export a report JSON
 
-Known limitations:
-- no Figma plugin/importer yet
-- no auto-layout inference
-- no CSS pseudo-element support
-- limited support for SVG/canvas/video/iframe
-- no responsive variant capture
-- no interaction state capture (hover/focus/open/active)
-- element hierarchy is DOM-driven, not layout-optimized
-- background images are extracted only as URL references, not binary assets
-- no font asset packaging
+### Buffer analyzer
 
-## What was improved in this iteration
+- `tools/figma-buffer-analyzer.html`
 
-- optional selector-based capture
-- wrapped text now exports `rects` in addition to a primary `rect`
-- background-image URL extraction
-- basic ignored-tag filtering (`script`, `style`, `noscript`, `template`)
-- safer node naming and metadata for selection scope
+It now supports:
 
-## Fixtures / validation baseline
+- single-sample decode
+- A/B compare mode
+- metadata diff
+- common prefix / suffix length
+- first differing offset
+- divergence hex / ascii / utf8 windows
+- tail analysis
+- field / chunk heuristics
+- tail delta view
+- compare JSON export
 
-A small manual validation set now lives under `fixtures/`:
+This tool is now the main workspace for real-vs-real buffer decomposition.
 
-- `fixtures/basic-card.html`
-- `fixtures/wrapped-text.html`
-- `fixtures/background-image.html`
-- `fixtures/expected-output-notes.md`
+## Capture / importer components still present
 
-Open a fixture in Chrome, inject `capture/html2fig-capture.js`, and run capture against either the full page or a selector root.
+These parts still matter, but they are no longer the main uncertainty:
 
-These fixtures are not a full automated test suite yet, but they provide a repeatable baseline for:
-- visible frame/text/image extraction
-- selector-based capture
-- wrapped text `rects`
-- background-image URL extraction
+- `capture/html2fig-capture.js`
+- `extension/`
+- `figma-plugin/`
 
-## Figma plugin MVP scaffold
+They remain useful because:
 
-A first-pass importer scaffold now exists under:
+- capture IR is still needed as source input
+- the extension is still a practical UX shell
+- the plugin path remains the fallback if native paste cannot be solved cleanly
 
-- `figma-plugin/manifest.json`
-- `figma-plugin/code.js`
-- `figma-plugin/ui.html`
+## Current direction
 
-What it currently does:
-- paste html2fig JSON into the plugin UI
-- create a root frame in Figma
-- import basic `frame`, `text`, and `image` nodes
-- attempt remote image fetching for `img` sources
+Near-term engineering direction:
 
-What it does **not** yet fully solve:
-- robust font mapping
-- background-image fills as first-class Figma image fills
-- layout optimization / auto-layout inference
-- precise nested relative positioning for all cases
-- production-grade asset packaging
+- keep collecting minimal real clipboard samples
+- use compare tooling to isolate object-specific blocks
+- keep public documentation centered on observed clipboard structure
+- avoid over-investing in wrapper-only tweaks unless a real sample comparison proves a missing contract field
 
-## Recommended next steps
+## Fallback path
 
-1. Improve importer fidelity for nested coordinates and fills
-2. Map background-image references to Figma image fills
-3. Add first-class SVG mapping and canvas export fallbacks
-4. Add asset packaging / image download helpers
-5. Add a cleaner bookmarklet or extension wrapper
-6. Add an automated browser test harness around the fixtures
+If native paste remains blocked after enough minimal-sample analysis, the practical fallback remains:
+
+- **Chrome Extension -> Local Bridge Server -> Figma Plugin**
+
+But current work is still prioritizing the native-paste serializer problem first.
+
+## Related docs
+
+- `ROADMAP.md`
+- `FIGMA_CLIPBOARD_RESEARCH.md`
+- `FIGMA_NATIVE_PASTE_PLAN.md`
+- `TESTING.md`
 
 ## One-line summary
 
-`html2fig-local` is a practical local MVP for capturing the current browser-rendered HTML UI and exporting a Figma-friendly editable layer structure in JSON form.
-
+`html2fig` is currently a reverse-engineering project for **Figma-native clipboard scene serialization**, with HTML capture as the already-established front half of the pipeline.
