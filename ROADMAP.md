@@ -108,10 +108,27 @@ An import is considered successful when the user can:
 
 ## Near-term priorities
 
-1. Define import quality using `gntb_deck` slide 1~3
-2. Run real capture -> import tests and document gaps
-3. Improve Figma importer fidelity before adding more capture complexity
-4. Add automation around fixture validation later
+1. Define import quality using representative presentation-style HTML screens
+2. Continue real capture -> import tests and document gaps
+3. Prioritize native clipboard research alongside importer fidelity
+4. Separate transport-wrapper work from scene-buffer serialization work
+5. Add automation around fixture validation later
+
+## Native clipboard track
+
+A parallel workstream now exists for native editable paste.
+
+Short-term practical split:
+- keep browser capture and plugin import working
+- improve clipboard transport structure in `text/html`
+- document observed wrapper patterns and metadata layout
+
+Current blocker:
+- the missing serializer for the scene buffer carried in clipboard payloads
+
+Implication:
+- capture quality is no longer the only bottleneck
+- editable native paste depends on reproducing the correct clipboard scene buffer, not just emitting HTML or JSON
 
 ## Guiding principle
 
