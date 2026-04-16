@@ -62,8 +62,8 @@
   <p>Paste JSON exported from <code>html2figLocal.captureCurrentPage()</code> or <code>downloadCapture()</code>, then import it into the current Figma page.</p>
   <textarea id="payload" placeholder="Paste html2fig JSON here"></textarea>
   <div class="row">
-    <button class="primary" id="importBtn">Import to Figma</button>
-    <button class="secondary" id="pasteBtn">Paste from Clipboard</button>
+    <button class="primary" id="pasteImportBtn">Paste + Import</button>
+    <button class="secondary" id="importBtn">Import Existing JSON</button>
     <button class="secondary" id="sampleBtn">Insert sample stub</button>
   </div>
   <div class="status" id="status"></div>
@@ -80,23 +80,34 @@
       status.textContent = 'Inserted sample stub.';
     });
 
-    document.getElementById('pasteBtn').addEventListener('click', async () => {
+    async function pasteFromClipboard() {
+      if (!navigator.clipboard || !navigator.clipboard.readText) {
+        throw new Error('Clipboard read is unavailable in this Figma environment');
+      }
+      payload.value = await navigator.clipboard.readText();
+      return payload.value;
+    }
+
+    function sendImport() {
+      const parsed = JSON.parse(payload.value);
+      parent.postMessage({ pluginMessage: { type: 'import-html2fig', payload: parsed } }, '*');
+      status.textContent = 'Import sent to plugin…';
+    }
+
+    document.getElementById('pasteImportBtn').addEventListener('click', async () => {
       try {
-        if (!navigator.clipboard || !navigator.clipboard.readText) {
-          throw new Error('Clipboard read is unavailable in this Figma environment');
-        }
-        payload.value = await navigator.clipboard.readText();
-        status.textContent = 'Clipboard pasted into importer.';
+        await pasteFromClipboard();
+        sendImport();
       } catch (error) {
-        status.textContent = 'Clipboard read failed: ' + error.message;
+        status.textContent = error.name === 'SyntaxError'
+          ? 'Invalid JSON in clipboard: ' + error.message
+          : 'Paste + import failed: ' + error.message;
       }
     });
 
     document.getElementById('importBtn').addEventListener('click', () => {
       try {
-        const parsed = JSON.parse(payload.value);
-        parent.postMessage({ pluginMessage: { type: 'import-html2fig', payload: parsed } }, '*');
-        status.textContent = 'Import sent to plugin…';
+        sendImport();
       } catch (error) {
         status.textContent = 'Invalid JSON: ' + error.message;
       }

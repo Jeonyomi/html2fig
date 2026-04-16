@@ -26,8 +26,8 @@ html2figLocal.downloadCapture('fixture.json')
 ### 3. Test Figma import
 In Figma:
 1. Load the plugin from `figma-plugin/manifest.json`
-2. Paste exported JSON into the plugin UI
-3. Click `Import to Figma`
+2. After using the browser extension or clipboard capture, open the plugin
+3. Click `Paste + Import`
 
 ## Recommended manual validation order
 
