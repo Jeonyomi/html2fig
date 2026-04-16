@@ -8,7 +8,7 @@
     body {
       margin: 0;
       padding: 16px;
-      width: 320px;
+      width: 340px;
       font-family: Inter, system-ui, sans-serif;
       background: #f7fafc;
       color: #102a43;
@@ -23,6 +23,21 @@
       line-height: 1.5;
       margin: 0 0 12px;
       color: #486581;
+    }
+    label {
+      display:block;
+      font-size:12px;
+      font-weight:600;
+      margin-bottom:6px;
+    }
+    select {
+      width:100%;
+      padding:8px 10px;
+      border-radius:8px;
+      border:1px solid #cbd2d9;
+      margin-bottom:12px;
+      font-size:12px;
+      background:#fff;
     }
     .row {
       display: flex;
@@ -44,12 +59,22 @@
       min-height: 18px;
       font-size: 12px;
       color: #486581;
+      white-space: pre-line;
     }
   </style>
 </head>
 <body>
   <h1>html2fig capture</h1>
-  <p>Capture the current page and copy html2fig JSON to the clipboard for Figma import.</p>
+  <p>Capture the current page and copy a test payload to the clipboard for Figma paste experiments.</p>
+  <label for="mode">Clipboard payload mode</label>
+  <select id="mode">
+    <option value="json">JSON (text/plain)</option>
+    <option value="html">HTML wrapper (text/html)</option>
+    <option value="svg">SVG snapshot (text/plain + text/html)</option>
+    <option value="rich">Experimental rich clipboard</option>
+    <option value="figma-html">Figma wrapper HTML probe</option>
+    <option value="figma-html-rich">Figma wrapper rich multi-mime probe</option>
+  </select>
   <div class="row">
     <button class="primary" id="captureBtn">Copy Current Page</button>
     <button class="secondary" id="captureAppBtn">Copy #app</button>
