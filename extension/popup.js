@@ -1,5 +1,11 @@
 const statusEl = document.getElementById('status');
 const modeEl = document.getElementById('mode');
+const variantMatrixEl = document.getElementById('variantMatrix');
+const variantRowsEl = document.getElementById('variantRows');
+
+let lastCapturedData = null;
+let lastProbeVariants = [];
+let acceptanceLog = {};
 
 function escapeHtml(text) {
   return String(text).replace(/[&<>]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]));
@@ -170,9 +176,9 @@ function buildSpliceProbeBuffer(data, templateKey, options = {}) {
   return base64FromBytes(out);
 }
 
-function serializeFigmaStyleRichProbe(data) {
+function buildProbeVariants(data) {
   const json = JSON.stringify(data);
-  const variants = [
+  return [
     {
       label: 'base64-json',
       metadata: createProbeMetadata(data, { version: 1, type: 'figma-rich-probe', variant: 'base64-json' }),
@@ -204,8 +210,25 @@ function serializeFigmaStyleRichProbe(data) {
       buffer: buildSpliceProbeBuffer(data, 'mixed', { variantLabel: 'splice-mixed-tail' }),
     },
   ].filter((variant) => !!variant.buffer);
+}
+
+function serializeSingleProbeVariantHtml(data, variant) {
   const fallback = buildFallbackTextRuns(data);
-  const spans = variants.map((variant, index) => {
+  const metadataWrapper = escapeHtml(wrapFigmaComment('figmeta', toBase64Utf8(variant.metadata)));
+  const bufferWrapper = escapeHtml(wrapFigmaComment('figma', variant.buffer));
+  return `
+    <html><body><!--StartFragment--><meta charset="utf-8"><meta name="html2fig-format" content="figma-rich-probe" />
+      <span data-html2fig-variant="${variant.label}" data-metadata="${metadataWrapper}" data-buffer="${bufferWrapper}" data-figma-metadata="${metadataWrapper}" data-figma-buffer="${bufferWrapper}" style="display:none"></span>
+      <div data-html2fig-probe-summary="variant:${variant.label}"></div>
+      ${fallback}
+    <!--EndFragment--></body></html>
+  `;
+}
+
+function serializeFigmaStyleRichProbe(data) {
+  const variants = buildProbeVariants(data);
+  const fallback = buildFallbackTextRuns(data);
+  const spans = variants.map((variant) => {
     const metadataWrapper = escapeHtml(wrapFigmaComment('figmeta', toBase64Utf8(variant.metadata)));
     const bufferWrapper = escapeHtml(wrapFigmaComment('figma', variant.buffer));
     return `<span data-html2fig-variant="${variant.label}" data-metadata="${metadataWrapper}" data-buffer="${bufferWrapper}" data-figma-metadata="${metadataWrapper}" data-figma-buffer="${bufferWrapper}" style="display:none"></span>`;
@@ -224,7 +247,54 @@ function serializeSvgPayload(data) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="120"><rect width="100%" height="100%" fill="#ffffff"/><text x="24" y="48" font-size="28" font-family="Arial, sans-serif" fill="#102a43">${title}</text><text x="24" y="86" font-size="16" font-family="Arial, sans-serif" fill="#486581">html2fig experimental SVG clipboard payload</text></svg>`;
 }
 
-async function writePayloadToClipboard(data, mode) {
+function renderVariantMatrix() {
+  if (!lastCapturedData || !lastProbeVariants.length) {
+    variantMatrixEl.hidden = true;
+    variantRowsEl.innerHTML = '';
+    return;
+  }
+  variantMatrixEl.hidden = false;
+  variantRowsEl.innerHTML = '';
+  lastProbeVariants.forEach((variant) => {
+    const row = document.createElement('div');
+    row.className = 'matrix-row';
+
+    const label = document.createElement('div');
+    label.className = 'matrix-label';
+    const verdict = acceptanceLog[variant.label];
+    label.textContent = verdict ? `${variant.label} (${verdict})` : variant.label;
+
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'secondary mini';
+    copyBtn.textContent = 'Copy';
+    copyBtn.addEventListener('click', async () => {
+      try {
+        await writePayloadToClipboard(lastCapturedData, 'figma-html-rich', { singleVariant: variant.label });
+        statusEl.textContent = `Copied variant ${variant.label}. Paste into Figma and mark result.`;
+      } catch (error) {
+        statusEl.textContent = `Variant copy failed: ${error.message}`;
+      }
+    });
+
+    const markBtn = document.createElement('button');
+    markBtn.className = 'secondary mini';
+    markBtn.textContent = verdict === 'accepted' ? 'Accepted' : verdict === 'ignored' ? 'Ignored' : 'Mark';
+    markBtn.addEventListener('click', () => {
+      const next = verdict === 'accepted' ? 'ignored' : verdict === 'ignored' ? null : 'accepted';
+      if (next) acceptanceLog[variant.label] = next;
+      else delete acceptanceLog[variant.label];
+      renderVariantMatrix();
+      statusEl.textContent = `Updated test matrix: ${variant.label} -> ${next || 'unset'}`;
+    });
+
+    row.appendChild(label);
+    row.appendChild(copyBtn);
+    row.appendChild(markBtn);
+    variantRowsEl.appendChild(row);
+  });
+}
+
+async function writePayloadToClipboard(data, mode, options = {}) {
   const json = JSON.stringify(data, null, 2);
 
   if (mode === 'json') {
@@ -241,7 +311,16 @@ async function writePayloadToClipboard(data, mode) {
     : mode === 'figma-html'
       ? serializeFigmaStyleHtmlProbe(data)
       : mode === 'figma-html-rich'
-        ? serializeFigmaStyleRichProbe(data)
+        ? (() => {
+            const variants = buildProbeVariants(data);
+            lastProbeVariants = variants;
+            if (options.singleVariant) {
+              const found = variants.find((variant) => variant.label === options.singleVariant);
+              if (!found) throw new Error(`Unknown probe variant: ${options.singleVariant}`);
+              return serializeSingleProbeVariantHtml(data, found);
+            }
+            return serializeFigmaStyleRichProbe(data);
+          })()
         : serializeHtmlPayload(data);
 
   const clipboardMap = {
@@ -302,7 +381,9 @@ async function runCapture(selector) {
     await injectCaptureScript(tab.id);
     const mode = modeEl.value;
     const data = await captureData(tab.id, selector);
+    lastCapturedData = data;
     await writePayloadToClipboard(data, mode);
+    renderVariantMatrix();
     statusEl.textContent = `Copied ${mode} payload for:\n${data?.meta?.title || 'Untitled Page'}\nNow try Ctrl+V in Figma.`;
   } catch (error) {
     statusEl.textContent = `Capture failed: ${error.message}`;
