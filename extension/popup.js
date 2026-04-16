@@ -18,16 +18,43 @@ function serializeHtmlPayload(data) {
   return `<div data-html2fig="1" data-format="${data?.meta?.format || 'html2fig-local'}"><pre>${escapeHtml(json)}</pre></div>`;
 }
 
+function randomAlphaNum(length) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let out = '';
+  for (let i = 0; i < length; i += 1) out += chars[Math.floor(Math.random() * chars.length)];
+  return out;
+}
+
+function randomPasteId() {
+  return Math.floor(Date.now() % 2147483647);
+}
+
 function createProbeMetadata(data, extra = {}) {
   return {
+    fileKey: randomAlphaNum(22),
+    pasteID: randomPasteId(),
+    dataType: 'scene',
     source: 'html2fig-local',
     format: data?.meta?.format || 'html2fig-local@0.2',
     title: data?.meta?.title || 'Untitled',
     url: data?.meta?.url || '',
     capturedAt: data?.meta?.capturedAt || new Date().toISOString(),
-    dataType: 'scene',
     ...extra,
   };
+}
+
+function buildFallbackTextRuns(data) {
+  const textNodes = (data?.nodes || []).filter((node) => node?.type === 'text' && node?.text);
+  if (textNodes.length === 0) {
+    return '<span style="white-space:pre-wrap;">Paste from html2fig</span>';
+  }
+
+  return textNodes.slice(0, 40).map((node) => {
+    const fontWeight = Number(node?.style?.fontWeight) || 400;
+    const fontSize = Number(node?.style?.fontSize) || 12;
+    const safeText = escapeHtml(node.text);
+    return `<span style="font-weight: ${fontWeight >= 600 ? 'bold' : 'normal'}; font-size: ${Math.max(11, Math.min(fontSize, 76))}px; white-space: pre-wrap;">${safeText}</span>`;
+  }).join('<br>');
 }
 
 function serializeFigmaStyleHtmlProbe(data) {
@@ -36,7 +63,8 @@ function serializeFigmaStyleHtmlProbe(data) {
   const encodedBuffer = toBase64Utf8(json);
   const metadataWrapper = escapeHtml(wrapFigmaComment('figmeta', encodedMeta));
   const bufferWrapper = escapeHtml(wrapFigmaComment('figma', encodedBuffer));
-  return `<html><head><meta charset="utf-8"></head><body><span data-metadata="${metadataWrapper}"></span><span data-buffer="${bufferWrapper}"></span><span style="white-space:pre-wrap;">Paste from html2fig</span></body></html>`;
+  const fallback = buildFallbackTextRuns(data);
+  return `<html><body><!--StartFragment--><meta charset="utf-8"><span data-metadata="${metadataWrapper}"></span><span data-buffer="${bufferWrapper}"></span>${fallback}<!--EndFragment--></body></html>`;
 }
 
 function serializeFigmaStyleRichProbe(data) {
@@ -48,13 +76,14 @@ function serializeFigmaStyleRichProbe(data) {
   const encodedBuffer = toBase64Utf8(json);
   const metadataWrapper = escapeHtml(wrapFigmaComment('figmeta', encodedMeta));
   const bufferWrapper = escapeHtml(wrapFigmaComment('figma', encodedBuffer));
+  const fallback = buildFallbackTextRuns(data);
   return `
-    <html><head><meta charset="utf-8"><meta name="html2fig-format" content="figma-rich-probe" /></head><body>
+    <html><body><!--StartFragment--><meta charset="utf-8"><meta name="html2fig-format" content="figma-rich-probe" />
       <span data-metadata="${metadataWrapper}"></span>
       <span data-buffer="${bufferWrapper}"></span>
       <span data-figma-metadata="${metadataWrapper}" data-figma-buffer="${bufferWrapper}"></span>
-      <span style="white-space:pre-wrap;">Paste from html2fig rich probe</span>
-    </body></html>
+      ${fallback}
+    <!--EndFragment--></body></html>
   `;
 }
 
