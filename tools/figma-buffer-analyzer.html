@@ -215,6 +215,11 @@
         <div class="label">Serializer hypothesis</div>
         <pre id="compareHypothesisOut">(empty)</pre>
       </div>
+
+      <div class="block">
+        <div class="label">Tail field candidates</div>
+        <pre id="compareCandidatesOut">(empty)</pre>
+      </div>
     </div>
   </div>
 
@@ -240,6 +245,7 @@
     const compareAutoOut = document.getElementById('compareAutoOut');
     const compare3ClusterOut = document.getElementById('compare3ClusterOut');
     const compareHypothesisOut = document.getElementById('compareHypothesisOut');
+    const compareCandidatesOut = document.getElementById('compareCandidatesOut');
 
     function resetOutputs() {
       summaryOut.textContent = '(empty)';
@@ -262,6 +268,7 @@
       compareAutoOut.textContent = '(empty)';
       compare3ClusterOut.textContent = '(empty)';
       compareHypothesisOut.textContent = '(empty)';
+      compareCandidatesOut.textContent = '(empty)';
     }
 
     function stripWrapper(text, tag) {
@@ -701,6 +708,51 @@
       return { text: lines.join('\n'), clusters: clusterData };
     }
 
+    function findCandidateFieldOffsets(buffers, startOffset) {
+      const counts = new Map();
+      for (let offset = startOffset; offset < Math.max(...buffers.map((bytes) => bytes.length)); offset += 1) {
+        const values = buffers.map((bytes) => (offset < bytes.length ? bytes[offset] : null));
+        const presentValues = values.filter((value) => value !== null);
+        if (presentValues.length < 2) continue;
+        const unique = new Set(presentValues);
+        if (unique.size > 1 && unique.size <= 3) {
+          counts.set(offset, {
+            offset,
+            values,
+            uniqueCount: unique.size,
+            allSmall: presentValues.every((value) => value >= 0 && value <= 0x7f),
+          });
+        }
+      }
+      return Array.from(counts.values()).slice(0, 64);
+    }
+
+    function analyzeTailFieldCandidates(aBytes, bBytes, cBytes, startOffset) {
+      const candidates = findCandidateFieldOffsets([aBytes, bBytes, cBytes].filter(Boolean), startOffset);
+      const lines = [];
+      lines.push(`Candidate scan start: ${startOffset}`);
+      lines.push(`Candidate count: ${candidates.length}`);
+      lines.push('');
+      lines.push('Likely field offsets');
+      lines.push('--------------------');
+      if (!candidates.length) {
+        lines.push('(none)');
+        return lines.join('\n');
+      }
+      candidates.forEach((candidate) => {
+        const rendered = candidate.values.map((value, index) => {
+          const label = ['A', 'B', 'C'][index] || `S${index + 1}`;
+          return `${label}=${value === null ? '∅' : `0x${value.toString(16).padStart(2, '0')}(${value})`}`;
+        }).join(', ');
+        lines.push(`abs ${candidate.offset}: ${rendered}${candidate.allSmall ? ' [small-value field?]' : ''}`);
+      });
+      lines.push('');
+      lines.push('Read');
+      lines.push('----');
+      lines.push('Offsets where samples differ in compact low-value ranges are good candidates for counts, enums, flags, or small length fields.');
+      return lines.join('\n');
+    }
+
     function buildAutoSummary(prefixLength, suffixLength, firstDiff, delta, clusters) {
       const lines = [];
       lines.push(`Shared prefix: ${prefixLength} bytes`);
@@ -1058,6 +1110,7 @@
             ? '- Tail lengths differ, which is consistent with per-object serialized payload size.'
             : '- Tail lengths match, which may indicate equal-size object payload blocks.'
         ].join('\n');
+        compareCandidatesOut.textContent = analyzeTailFieldCandidates(a.bufferBytes, b.bufferBytes, null, Math.max(0, prefixLength));
         lastCompareExport = buildCompareExport(a, b, prefixLength, suffixLength, firstDiff, delta, clusterResult.clusters, autoSummary);
       } catch (error) {
         compareSummaryOut.textContent = `Compare failed: ${error.message}`;
@@ -1086,9 +1139,11 @@
         const summary = buildThreeWaySummary(a, b, c);
         const clusterView = buildThreeWayClusterView(a, b, c, summary);
         const hypothesis = buildSerializerHypothesis(a, b, c, summary, clusterView);
+        const candidates = analyzeTailFieldCandidates(a.bufferBytes, b.bufferBytes, c.bufferBytes, summary.sharedThreePrefix);
         compare3Out.textContent = summary.text;
         compare3ClusterOut.textContent = clusterView.text;
         compareHypothesisOut.textContent = hypothesis;
+        compareCandidatesOut.textContent = candidates;
         compareAutoOut.textContent = [
           `3-way shared prefix: ${summary.sharedThreePrefix}`,
           `A/B: ${summary.abPrefix}`,
