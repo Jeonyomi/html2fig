@@ -240,8 +240,7 @@
     return document.querySelector(selector) || document.body;
   }
 
-  function captureCurrentPage(options = {}) {
-    const rootElement = resolveRootElement(options.selector);
+  function captureFromRootElement(rootElement, options = {}) {
     const rootRect = rootElement.getBoundingClientRect();
     const bodyRect = document.body.getBoundingClientRect();
     const root = {
@@ -261,7 +260,7 @@
       root: {
         id: 'root',
         type: 'frame',
-        name: safeName(document.title, 'Page'),
+        name: safeName(options.name || rootElement.getAttribute('data-slide-title') || document.title, 'Page'),
         rect: options.selector
           ? rectForNode(rootRect)
           : {
@@ -283,7 +282,35 @@
     return root;
   }
 
+  function captureCurrentPage(options = {}) {
+    const rootElement = resolveRootElement(options.selector);
+    return captureFromRootElement(rootElement, options);
+  }
+
+  function getDeckSlides() {
+    return Array.from(document.querySelectorAll('.slide'));
+  }
+
+  function captureDeckSlides(options = {}) {
+    const slides = getDeckSlides();
+    return slides.map((slide, index) => {
+      const slideName = safeName(slide.getAttribute('data-title') || slide.querySelector('.h1, .cover-title, .k')?.textContent || `Slide ${index + 1}`, `Slide ${index + 1}`);
+      return {
+        index,
+        name: slideName,
+        selector: `.slide:nth-of-type(${index + 1})`,
+        payload: captureFromRootElement(slide, {
+          ...options,
+          selector: `.slide:nth-of-type(${index + 1})`,
+          name: slideName,
+        }),
+      };
+    });
+  }
+
   window.html2figLocal = {
     captureCurrentPage,
+    captureDeckSlides,
+    getDeckSlides,
   };
 })();

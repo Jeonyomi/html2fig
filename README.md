@@ -158,7 +158,8 @@ Current MVP direction for real documents like `gntb_deck/index.html` is:
 
 - capture DOM into richer `html2fig-local@0.3` scene JSON
 - preserve enough layout/style hints for cards, sections, headings, lists, and slide-like frames
-- import that JSON through the Figma plugin as editable nodes
+- support slide-by-slide deck export via `captureDeckSlides()` / `downloadDeckSlides()`
+- import that JSON through the Figma plugin as editable nodes or as a grouped deck frame
 
 This is not native paste, but it is the current shortest path to a usable Figma import workflow.
 

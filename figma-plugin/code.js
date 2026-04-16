@@ -254,7 +254,7 @@ function resolveEffectiveParentId(source, sourceMap) {
   return parentId;
 }
 
-async function importHtml2Fig(payload) {
+async function importSinglePayload(payload, parentFrame = null) {
   if (!payload?.root || !Array.isArray(payload?.nodes)) {
     throw new Error('Invalid html2fig payload');
   }
@@ -276,7 +276,7 @@ async function importHtml2Fig(payload) {
     pageRoot.paddingLeft = 40;
   }
 
-  figma.currentPage.appendChild(pageRoot);
+  (parentFrame || figma.currentPage).appendChild(pageRoot);
 
   const sourceMap = new Map(payload.nodes.map((node) => [node.id, node]));
   const nodeMap = new Map();
@@ -314,9 +314,38 @@ async function importHtml2Fig(payload) {
     }
   }
 
-  figma.viewport.scrollAndZoomIntoView([pageRoot]);
-  figma.currentPage.selection = [pageRoot];
   return pageRoot;
+}
+
+async function importHtml2Fig(payload) {
+  if (payload?.slides && Array.isArray(payload.slides)) {
+    const deckRoot = figma.createFrame();
+    deckRoot.name = payload.meta?.title || 'Imported Deck';
+    deckRoot.layoutMode = 'VERTICAL';
+    deckRoot.itemSpacing = 120;
+    deckRoot.paddingTop = 80;
+    deckRoot.paddingRight = 80;
+    deckRoot.paddingBottom = 80;
+    deckRoot.paddingLeft = 80;
+    deckRoot.fills = [];
+    deckRoot.strokes = [];
+    figma.currentPage.appendChild(deckRoot);
+
+    const imported = [];
+    for (const slideEntry of payload.slides) {
+      const slideRoot = await importSinglePayload(slideEntry.payload, deckRoot);
+      slideRoot.name = `${slideEntry.index + 1}. ${slideEntry.name}`;
+      imported.push(slideRoot);
+    }
+    figma.viewport.scrollAndZoomIntoView([deckRoot]);
+    figma.currentPage.selection = [deckRoot];
+    return deckRoot;
+  }
+
+  const root = await importSinglePayload(payload);
+  figma.viewport.scrollAndZoomIntoView([root]);
+  figma.currentPage.selection = [root];
+  return root;
 }
 
 figma.ui.onmessage = async (msg) => {
