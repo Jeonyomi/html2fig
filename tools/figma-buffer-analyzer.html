@@ -115,6 +115,7 @@
       <textarea id="compareB" placeholder="Paste sample B here"></textarea>
       <div class="row">
         <button id="compareBtn">Compare A/B</button>
+        <button id="exportCompareBtn" class="secondary">Export compare JSON</button>
         <button id="compareSampleBtn" class="secondary">Load compare scaffold</button>
         <button id="compareClearBtn" class="secondary">Clear compare</button>
       </div>
@@ -179,6 +180,11 @@
         <div class="label">Field / chunk heuristics</div>
         <pre id="compareFieldOut">(empty)</pre>
       </div>
+
+      <div class="block">
+        <div class="label">Tail delta view</div>
+        <pre id="compareDeltaOut">(empty)</pre>
+      </div>
     </div>
   </div>
 
@@ -197,6 +203,7 @@
     const compareAsciiOut = document.getElementById('compareAsciiOut');
     const compareTailOut = document.getElementById('compareTailOut');
     const compareFieldOut = document.getElementById('compareFieldOut');
+    const compareDeltaOut = document.getElementById('compareDeltaOut');
 
     function resetOutputs() {
       summaryOut.textContent = '(empty)';
@@ -213,6 +220,7 @@
       compareAsciiOut.textContent = '(empty)';
       compareTailOut.textContent = '(empty)';
       compareFieldOut.textContent = '(empty)';
+      compareDeltaOut.textContent = '(empty)';
     }
 
     function stripWrapper(text, tag) {
@@ -545,6 +553,89 @@
       return lines.join('\n');
     }
 
+    function toHexInline(bytes, limit = 128) {
+      return Array.from(bytes.slice(0, limit)).map((b) => b.toString(16).padStart(2, '0')).join(' ') || '(empty)';
+    }
+
+    function buildTailDelta(aBytes, bBytes, prefixLength) {
+      const tailA = aBytes.slice(prefixLength);
+      const tailB = bBytes.slice(prefixLength);
+      const min = Math.min(tailA.length, tailB.length);
+      const deltas = [];
+      for (let i = 0; i < min; i += 1) {
+        if (tailA[i] !== tailB[i]) {
+          deltas.push({
+            tailOffset: i,
+            absoluteOffset: prefixLength + i,
+            a: tailA[i],
+            b: tailB[i],
+          });
+          if (deltas.length >= 64) break;
+        }
+      }
+      return {
+        tailALength: tailA.length,
+        tailBLength: tailB.length,
+        firstDeltas: deltas,
+        tailAHeadHex: toHexInline(tailA, 64),
+        tailBHeadHex: toHexInline(tailB, 64),
+      };
+    }
+
+    function renderTailDelta(delta) {
+      const lines = [];
+      lines.push(`Tail A length: ${delta.tailALength}`);
+      lines.push(`Tail B length: ${delta.tailBLength}`);
+      lines.push('');
+      lines.push('Tail A head (hex)');
+      lines.push('-----------------');
+      lines.push(delta.tailAHeadHex);
+      lines.push('');
+      lines.push('Tail B head (hex)');
+      lines.push('-----------------');
+      lines.push(delta.tailBHeadHex);
+      lines.push('');
+      lines.push('First differing tail bytes');
+      lines.push('--------------------------');
+      if (!delta.firstDeltas.length) {
+        lines.push('(none in overlapped tail range)');
+      } else {
+        delta.firstDeltas.forEach((entry) => {
+          lines.push(`tail ${entry.tailOffset} / abs ${entry.absoluteOffset}: A=0x${entry.a.toString(16).padStart(2, '0')} B=0x${entry.b.toString(16).padStart(2, '0')}`);
+        });
+      }
+      return lines.join('\n');
+    }
+
+    function buildCompareExport(a, b, prefixLength, suffixLength, firstDiff) {
+      const delta = buildTailDelta(a.bufferBytes, b.bufferBytes, Math.max(0, prefixLength));
+      return {
+        generatedAt: new Date().toISOString(),
+        sampleA: {
+          mimeTypes: a.report?.mimeTypes || [],
+          metadata: a.metadataJson || null,
+          bufferLength: a.bufferBytes.length,
+          textPlainLength: (a.report?.textPlain || '').length,
+          textHtmlLength: (a.report?.textHtml || '').length,
+        },
+        sampleB: {
+          mimeTypes: b.report?.mimeTypes || [],
+          metadata: b.metadataJson || null,
+          bufferLength: b.bufferBytes.length,
+          textPlainLength: (b.report?.textPlain || '').length,
+          textHtmlLength: (b.report?.textHtml || '').length,
+        },
+        compare: {
+          commonPrefixLength: prefixLength,
+          commonSuffixLength: suffixLength,
+          firstDifferingOffset: firstDiff,
+          tailDelta: delta,
+        },
+      };
+    }
+
+    let lastCompareExport = null;
+
     function compareSamples() {
       resetCompareOutputs();
       const rawA = compareAEl.value.trim();
@@ -638,6 +729,10 @@
           '========================',
           analyzeFieldHeuristics(b.bufferBytes, Math.max(0, prefixLength)),
         ].join('\n');
+
+        const delta = buildTailDelta(a.bufferBytes, b.bufferBytes, Math.max(0, prefixLength));
+        compareDeltaOut.textContent = renderTailDelta(delta);
+        lastCompareExport = buildCompareExport(a, b, prefixLength, suffixLength, firstDiff);
       } catch (error) {
         compareSummaryOut.textContent = `Compare failed: ${error.message}`;
       }
@@ -645,6 +740,21 @@
 
     document.getElementById('analyzeBtn').addEventListener('click', analyze);
     document.getElementById('compareBtn').addEventListener('click', compareSamples);
+    document.getElementById('exportCompareBtn').addEventListener('click', () => {
+      if (!lastCompareExport) {
+        compareSummaryOut.textContent = 'Run Compare A/B first before exporting compare JSON.';
+        return;
+      }
+      const blob = new Blob([JSON.stringify(lastCompareExport, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `figma-buffer-compare-${Date.now()}.json`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    });
 
     document.getElementById('clearBtn').addEventListener('click', () => {
       inputEl.value = '';
@@ -654,6 +764,7 @@
     document.getElementById('compareClearBtn').addEventListener('click', () => {
       compareAEl.value = '';
       compareBEl.value = '';
+      lastCompareExport = null;
       resetCompareOutputs();
     });
 
