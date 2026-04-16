@@ -75,21 +75,10 @@
       },
       opacity: Number(style.opacity || 1),
       boxShadow: style.boxShadow,
-      boxShadowTokens: serializeBoxShadow(style.boxShadow),
       textAlign: style.textAlign,
       overflow: style.overflow,
       objectFit: style.objectFit || null,
       zIndex: style.zIndex,
-      display: style.display,
-      position: style.position,
-      gap: px(style.gap || 0),
-      justifyContent: style.justifyContent,
-      alignItems: style.alignItems,
-      fontFamily: style.fontFamily,
-      fontSize: px(style.fontSize),
-      fontWeight: style.fontWeight,
-      lineHeight: style.lineHeight,
-      letterSpacing: style.letterSpacing,
     };
   }
 
@@ -99,54 +88,6 @@
       y: Math.round(rect.top + window.scrollY),
       width: Math.round(rect.width),
       height: Math.round(rect.height),
-    };
-  }
-
-  function serializeBoxShadow(value) {
-    if (!value || value === 'none') return [];
-    return value.split(/,(?![^()]*\))/).map((entry) => entry.trim()).filter(Boolean);
-  }
-
-  function getNodeRole(el, tag) {
-    if (tag === 'img') return 'image';
-    if (/^(h1|h2|h3|h4|h5|h6)$/.test(tag)) return 'heading';
-    if (tag === 'button') return 'button';
-    if (tag === 'a') return 'link';
-    if (tag === 'li') return 'list-item';
-    if (tag === 'ul' || tag === 'ol') return 'list';
-    if (tag === 'section' || tag === 'article' || tag === 'main') return 'section';
-    if (tag === 'svg') return 'vector';
-    return 'frame';
-  }
-
-  function estimateLayoutMode(style) {
-    if (!style) return 'NONE';
-    if (style.display === 'flex') {
-      return style.flexDirection && style.flexDirection.startsWith('column') ? 'VERTICAL' : 'HORIZONTAL';
-    }
-    if (style.display === 'grid') return 'GRID';
-    return 'NONE';
-  }
-
-  function buildExportHints(el, style, rect) {
-    const childElements = Array.from(el.children || []).filter((child) => isVisibleElement(child));
-    return {
-      layoutMode: estimateLayoutMode(style),
-      childCount: childElements.length,
-      isTextContainer: childElements.length === 0,
-      likelyCard: rect.width > 120 && rect.height > 80 && (style.backgroundColor !== 'rgba(0, 0, 0, 0)' || px(style.borderTopWidth) > 0 || style.boxShadow !== 'none'),
-      likelySlide: rect.width >= Math.max(window.innerWidth * 0.6, 800) && rect.height >= Math.max(window.innerHeight * 0.45, 400),
-      padding: {
-        top: px(style.paddingTop),
-        right: px(style.paddingRight),
-        bottom: px(style.paddingBottom),
-        left: px(style.paddingLeft),
-      },
-      display: style.display,
-      position: style.position,
-      gap: px(style.gap || 0),
-      justifyContent: style.justifyContent,
-      alignItems: style.alignItems,
     };
   }
 
@@ -165,18 +106,14 @@
     const style = window.getComputedStyle(el);
     const rect = el.getBoundingClientRect();
     const tag = el.tagName.toLowerCase();
-    const absoluteRect = rectForNode(rect);
     const base = {
       id: crypto.randomUUID(),
       parentId,
       type: 'frame',
-      role: getNodeRole(el, tag),
       tag,
       name: getElementName(el, tag),
-      rect: absoluteRect,
+      rect: rectForNode(rect),
       style: extractCommonStyle(el, style),
-      exportHints: buildExportHints(el, style, absoluteRect),
-      textContent: normalizeText(el.textContent || ''),
       children: [],
     };
 
@@ -206,15 +143,10 @@
       id: crypto.randomUUID(),
       parentId,
       type: 'text',
-      role: 'text',
       name: text.slice(0, 40),
       text,
       rect: rectForNode(rects[0]),
       rects: rects.map(rectForNode),
-      exportHints: {
-        inline: parentEl.tagName.toLowerCase() === 'span',
-        parentTag: parentEl.tagName.toLowerCase(),
-      },
       style: {
         color: colorToFigma(style.color),
         fontFamily: style.fontFamily,
@@ -272,8 +204,7 @@
           height: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight),
         },
         selection: options.selector || 'body',
-        format: 'html2fig-local@0.3',
-        exportTarget: options.exportTarget || 'figma-plugin',
+        format: 'html2fig-local@0.2',
       },
       root: {
         id: 'root',

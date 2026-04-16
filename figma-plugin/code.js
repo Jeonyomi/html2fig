@@ -13,39 +13,6 @@ function rgbaToPaint(color) {
   };
 }
 
-function inferSceneType(payload) {
-  const title = payload?.meta?.title || '';
-  const nodes = Array.isArray(payload?.nodes) ? payload.nodes : [];
-  const slideLikeCount = nodes.filter((node) => node.exportHints?.likelySlide).length;
-  const cardLikeCount = nodes.filter((node) => node.exportHints?.likelyCard).length;
-  if (/deck|slide/i.test(title) || slideLikeCount > 0) return 'slides';
-  if (cardLikeCount > 3) return 'cards';
-  return 'page';
-}
-
-function toFigmaLayoutMode(layoutMode) {
-  if (layoutMode === 'VERTICAL') return 'VERTICAL';
-  if (layoutMode === 'HORIZONTAL') return 'HORIZONTAL';
-  return null;
-}
-
-function applyAutoLayoutHints(node, source) {
-  const hints = source?.exportHints;
-  if (!hints || !('layoutMode' in node)) return;
-  const layoutMode = toFigmaLayoutMode(hints.layoutMode);
-  if (!layoutMode) return;
-  try {
-    node.layoutMode = layoutMode;
-    node.primaryAxisSizingMode = 'FIXED';
-    node.counterAxisSizingMode = 'FIXED';
-    node.itemSpacing = Math.max(0, Math.round(hints.gap || 0));
-    node.paddingTop = Math.round(hints.padding?.top || 0);
-    node.paddingRight = Math.round(hints.padding?.right || 0);
-    node.paddingBottom = Math.round(hints.padding?.bottom || 0);
-    node.paddingLeft = Math.round(hints.padding?.left || 0);
-  } catch (_) {}
-}
-
 function isFiniteRect(rect) {
   return rect && [rect.x, rect.y, rect.width, rect.height].every((n) => Number.isFinite(n));
 }
@@ -121,14 +88,6 @@ function applyFrameStyle(node, style) {
   applyCornerRadius(node, style);
 }
 
-function applyTextAlignment(node, style) {
-  const align = (style?.textAlign || '').toLowerCase();
-  if (align === 'center') node.textAlignHorizontal = 'CENTER';
-  else if (align === 'right' || align === 'end') node.textAlignHorizontal = 'RIGHT';
-  else if (align === 'justify') node.textAlignHorizontal = 'JUSTIFIED';
-  else node.textAlignHorizontal = 'LEFT';
-}
-
 async function ensureFont(style) {
   const familyRaw = style?.fontFamily || 'Arial';
   const family = familyRaw.split(',')[0].replace(/["']/g, '').trim() || 'Arial';
@@ -178,19 +137,6 @@ async function createTextNode(source) {
   node.fontSize = source.style?.fontSize || 16;
   const fill = rgbaToPaint(source.style?.color);
   node.fills = fill ? [fill] : [];
-  if (source.style?.lineHeight && source.style.lineHeight !== 'normal') {
-    const lineHeightPx = Number.parseFloat(source.style.lineHeight);
-    if (Number.isFinite(lineHeightPx) && lineHeightPx > 0) {
-      node.lineHeight = { unit: 'PIXELS', value: lineHeightPx };
-    }
-  }
-  if (source.style?.letterSpacing) {
-    const letterSpacingPx = Number.parseFloat(source.style.letterSpacing);
-    if (Number.isFinite(letterSpacingPx)) {
-      node.letterSpacing = { unit: 'PIXELS', value: letterSpacingPx };
-    }
-  }
-  applyTextAlignment(node, source.style || {});
   return node;
 }
 
@@ -213,7 +159,6 @@ async function createFrameNode(source) {
   const node = figma.createFrame();
   node.name = source.name || source.tag || 'frame';
   applyFrameStyle(node, source.style || {});
-  applyAutoLayoutHints(node, source);
   await applyBackgroundImage(node, source.style || {});
   return node;
 }
@@ -259,22 +204,12 @@ async function importHtml2Fig(payload) {
     throw new Error('Invalid html2fig payload');
   }
 
-  const sceneType = inferSceneType(payload);
   const pageRoot = figma.createFrame();
   pageRoot.name = payload.root.name || payload.meta?.title || 'Imported HTML';
   const rootRect = payload.root.rect || { x: 0, y: 0, width: 1200, height: 800 };
   setAbsoluteGeometry(pageRoot, rootRect);
   pageRoot.fills = [];
   pageRoot.strokes = [];
-
-  if (sceneType === 'slides') {
-    pageRoot.layoutMode = 'VERTICAL';
-    pageRoot.itemSpacing = 80;
-    pageRoot.paddingTop = 40;
-    pageRoot.paddingRight = 40;
-    pageRoot.paddingBottom = 40;
-    pageRoot.paddingLeft = 40;
-  }
 
   figma.currentPage.appendChild(pageRoot);
 
@@ -303,11 +238,7 @@ async function importHtml2Fig(payload) {
 
     if ('appendChild' in parent) {
       parent.appendChild(node);
-      if ('layoutMode' in parent && parent.layoutMode !== 'NONE' && source.type !== 'text') {
-        resizeIfPossible(node, source.rect);
-      } else {
-        setRelativeGeometry(node, source.rect, effectiveParentId === 'root' ? rootRect : parentRect);
-      }
+      setRelativeGeometry(node, source.rect, effectiveParentId === 'root' ? rootRect : parentRect);
     } else {
       pageRoot.appendChild(node);
       setRelativeGeometry(node, source.rect, rootRect);
