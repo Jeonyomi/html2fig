@@ -254,7 +254,8 @@
     return document.querySelector(selector) || document.body;
   }
 
-  function captureFromRootElement(rootElement, options = {}) {
+  function captureCurrentPage(options = {}) {
+    const rootElement = resolveRootElement(options.selector);
     const rootRect = rootElement.getBoundingClientRect();
     const bodyRect = document.body.getBoundingClientRect();
     const root = {
@@ -277,7 +278,7 @@
       root: {
         id: 'root',
         type: 'frame',
-        name: safeName(options.name || rootElement.getAttribute('data-slide-title') || document.title, 'Page'),
+        name: safeName(document.title, 'Page'),
         rect: options.selector
           ? rectForNode(rootRect)
           : {
@@ -303,32 +304,6 @@
     return root;
   }
 
-  function captureCurrentPage(options = {}) {
-    const rootElement = resolveRootElement(options.selector);
-    return captureFromRootElement(rootElement, options);
-  }
-
-  function getDeckSlides() {
-    return Array.from(document.querySelectorAll('.slide'));
-  }
-
-  function captureDeckSlides(options = {}) {
-    const slides = getDeckSlides();
-    return slides.map((slide, index) => {
-      const slideName = safeName(slide.getAttribute('data-title') || slide.querySelector('.h1, .cover-title, .k')?.textContent || `Slide ${index + 1}`, `Slide ${index + 1}`);
-      return {
-        index,
-        name: slideName,
-        selector: `.slide:nth-of-type(${index + 1})`,
-        payload: captureFromRootElement(slide, {
-          ...options,
-          selector: `.slide:nth-of-type(${index + 1})`,
-          name: slideName,
-        }),
-      };
-    });
-  }
-
   function downloadCapture(filename = 'html2fig-export.json', options = {}) {
     const data = captureCurrentPage(options);
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -336,30 +311,6 @@
     const a = document.createElement('a');
     a.href = url;
     a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-    return data;
-  }
-
-  function downloadDeckSlides(options = {}) {
-    const captures = captureDeckSlides(options);
-    const data = {
-      meta: {
-        title: document.title,
-        url: location.href,
-        capturedAt: new Date().toISOString(),
-        format: 'html2fig-deck@0.1',
-        slideCount: captures.length,
-      },
-      slides: captures,
-    };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = options.filename || 'html2fig-deck-export.json';
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -379,12 +330,9 @@
 
   window.html2figLocal = {
     captureCurrentPage,
-    captureDeckSlides,
-    getDeckSlides,
     downloadCapture,
-    downloadDeckSlides,
     copyCaptureToClipboard,
   };
 
-  console.log('[html2fig-local] Ready. Run html2figLocal.captureCurrentPage(), html2figLocal.captureDeckSlides(), html2figLocal.downloadCapture(), html2figLocal.downloadDeckSlides(), or html2figLocal.copyCaptureToClipboard(). Optional: pass { selector: "#app" }.');
+  console.log('[html2fig-local] Ready. Run html2figLocal.captureCurrentPage(), html2figLocal.downloadCapture(), or html2figLocal.copyCaptureToClipboard(). Optional: pass { selector: "#app" }.');
 })();
