@@ -174,6 +174,11 @@
         <div class="label">Tail structure analysis</div>
         <pre id="compareTailOut">(empty)</pre>
       </div>
+
+      <div class="block">
+        <div class="label">Field / chunk heuristics</div>
+        <pre id="compareFieldOut">(empty)</pre>
+      </div>
     </div>
   </div>
 
@@ -191,6 +196,7 @@
     const compareHexOut = document.getElementById('compareHexOut');
     const compareAsciiOut = document.getElementById('compareAsciiOut');
     const compareTailOut = document.getElementById('compareTailOut');
+    const compareFieldOut = document.getElementById('compareFieldOut');
 
     function resetOutputs() {
       summaryOut.textContent = '(empty)';
@@ -206,6 +212,7 @@
       compareHexOut.textContent = '(empty)';
       compareAsciiOut.textContent = '(empty)';
       compareTailOut.textContent = '(empty)';
+      compareFieldOut.textContent = '(empty)';
     }
 
     function stripWrapper(text, tag) {
@@ -455,6 +462,89 @@
       return lines.join('\n');
     }
 
+    function readVarints(bytes, maxCount = 32) {
+      const values = [];
+      let i = 0;
+      while (i < bytes.length && values.length < maxCount) {
+        let value = 0;
+        let shift = 0;
+        let length = 0;
+        let complete = false;
+        for (; i < bytes.length && length < 5; i += 1, length += 1) {
+          const byte = bytes[i];
+          value |= (byte & 0x7f) << shift;
+          shift += 7;
+          if ((byte & 0x80) === 0) {
+            complete = true;
+            i += 1;
+            break;
+          }
+        }
+        values.push({ value, length, complete });
+        if (!complete) break;
+      }
+      return values;
+    }
+
+    function findZeroBoundaries(bytes, limit = 24) {
+      const out = [];
+      for (let i = 0; i < bytes.length && out.length < limit; i += 1) {
+        if (bytes[i] === 0x00) out.push(i);
+      }
+      return out;
+    }
+
+    function findLengthLikePrefixes(bytes, limit = 16) {
+      const out = [];
+      for (let i = 0; i + 4 <= bytes.length && out.length < limit; i += 1) {
+        const value = bytes[i] | (bytes[i + 1] << 8) | (bytes[i + 2] << 16) | (bytes[i + 3] << 24);
+        if (value > 0 && value <= bytes.length - (i + 4) && value < 4096) {
+          out.push(`offset ${i}: little-endian 32-bit value ${value}`);
+        }
+      }
+      return out;
+    }
+
+    function analyzeFieldHeuristics(bytes, startOffset) {
+      if (!bytes || !bytes.length) return '(empty)';
+      const tail = bytes.slice(startOffset);
+      const lines = [];
+      const varints = readVarints(tail, 24);
+      const zeros = findZeroBoundaries(tail, 24);
+      const lengths = findLengthLikePrefixes(tail, 20);
+      const printable = findPrintableStrings(tail, 4);
+
+      lines.push(`Heuristic region starts at absolute offset ${startOffset}`);
+      lines.push(`Region length: ${tail.length}`);
+      lines.push('');
+      lines.push('Leading varint-like values');
+      lines.push('--------------------------');
+      if (varints.length) {
+        varints.forEach((entry, index) => {
+          lines.push(`#${index + 1}: value=${entry.value}, bytes=${entry.length}, complete=${entry.complete}`);
+        });
+      } else {
+        lines.push('(none)');
+      }
+
+      lines.push('');
+      lines.push('Early zero-byte boundaries');
+      lines.push('-------------------------');
+      lines.push(...(zeros.length ? zeros.map((offset) => `tail offset ${offset} / absolute ${startOffset + offset}`) : ['(none)']));
+
+      lines.push('');
+      lines.push('Length-like little-endian prefixes');
+      lines.push('--------------------------------');
+      lines.push(...(lengths.length ? lengths : ['(none)']));
+
+      lines.push('');
+      lines.push('Printable strings');
+      lines.push('-----------------');
+      lines.push(...(printable.length ? printable : ['(none)']));
+
+      return lines.join('\n');
+    }
+
     function compareSamples() {
       resetCompareOutputs();
       const rawA = compareAEl.value.trim();
@@ -537,6 +627,16 @@
           'B tail analysis',
           '===============',
           analyzeTailRegion(b.bufferBytes, Math.max(0, prefixLength)),
+        ].join('\n');
+
+        compareFieldOut.textContent = [
+          'A field/chunk heuristics',
+          '========================',
+          analyzeFieldHeuristics(a.bufferBytes, Math.max(0, prefixLength)),
+          '',
+          'B field/chunk heuristics',
+          '========================',
+          analyzeFieldHeuristics(b.bufferBytes, Math.max(0, prefixLength)),
         ].join('\n');
       } catch (error) {
         compareSummaryOut.textContent = `Compare failed: ${error.message}`;
