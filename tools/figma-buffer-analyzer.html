@@ -204,6 +204,11 @@
         <div class="label">Auto summary</div>
         <pre id="compareAutoOut">(empty)</pre>
       </div>
+
+      <div class="block">
+        <div class="label">3-way cluster / segment view</div>
+        <pre id="compare3ClusterOut">(empty)</pre>
+      </div>
     </div>
   </div>
 
@@ -227,6 +232,7 @@
     const compare3Out = document.getElementById('compare3Out');
     const compareClusterOut = document.getElementById('compareClusterOut');
     const compareAutoOut = document.getElementById('compareAutoOut');
+    const compare3ClusterOut = document.getElementById('compare3ClusterOut');
 
     function resetOutputs() {
       summaryOut.textContent = '(empty)';
@@ -247,6 +253,7 @@
       compare3Out.textContent = '(empty)';
       compareClusterOut.textContent = '(empty)';
       compareAutoOut.textContent = '(empty)';
+      compare3ClusterOut.textContent = '(empty)';
     }
 
     function stripWrapper(text, tag) {
@@ -771,6 +778,62 @@
       };
     }
 
+    function segmentTailAgainstPrefix(bytes, prefixLength) {
+      const tail = bytes.slice(prefixLength);
+      const nonZeroRuns = [];
+      let start = -1;
+      for (let i = 0; i <= tail.length; i += 1) {
+        const isNonZero = i < tail.length && tail[i] !== 0;
+        if (isNonZero && start === -1) start = i;
+        if ((!isNonZero || i === tail.length) && start !== -1) {
+          const end = i - 1;
+          if (end - start + 1 >= 4) {
+            nonZeroRuns.push({
+              tailStart: start,
+              tailEnd: end,
+              absoluteStart: prefixLength + start,
+              absoluteEnd: prefixLength + end,
+              length: end - start + 1,
+            });
+          }
+          start = -1;
+        }
+      }
+      return nonZeroRuns.slice(0, 20);
+    }
+
+    function buildThreeWayClusterView(a, b, c, summary) {
+      const sharedPrefix = Math.max(0, summary.sharedThreePrefix);
+      const segA = segmentTailAgainstPrefix(a.bufferBytes, sharedPrefix);
+      const segB = segmentTailAgainstPrefix(b.bufferBytes, sharedPrefix);
+      const segC = segmentTailAgainstPrefix(c.bufferBytes, sharedPrefix);
+
+      const lines = [];
+      lines.push(`3-way shared prefix anchor: ${sharedPrefix}`);
+      lines.push('');
+      lines.push('A tail segments');
+      lines.push('---------------');
+      lines.push(...(segA.length ? segA.map((s) => `abs ${s.absoluteStart}..${s.absoluteEnd} (len ${s.length})`) : ['(none)']));
+      lines.push('');
+      lines.push('B tail segments');
+      lines.push('---------------');
+      lines.push(...(segB.length ? segB.map((s) => `abs ${s.absoluteStart}..${s.absoluteEnd} (len ${s.length})`) : ['(none)']));
+      lines.push('');
+      lines.push('C tail segments');
+      lines.push('---------------');
+      lines.push(...(segC.length ? segC.map((s) => `abs ${s.absoluteStart}..${s.absoluteEnd} (len ${s.length})`) : ['(none)']));
+      lines.push('');
+      lines.push('Working read');
+      lines.push('------------');
+      lines.push('Compare whether C introduces new post-prefix segments beyond the union of A and B.');
+
+      return {
+        sharedPrefix,
+        segments: { A: segA, B: segB, C: segC },
+        text: lines.join('\n'),
+      };
+    }
+
     let lastCompareExport = null;
 
     function compareSamples() {
@@ -899,7 +962,9 @@
           return;
         }
         const summary = buildThreeWaySummary(a, b, c);
+        const clusterView = buildThreeWayClusterView(a, b, c, summary);
         compare3Out.textContent = summary.text;
+        compare3ClusterOut.textContent = clusterView.text;
         compareAutoOut.textContent = [
           `3-way shared prefix: ${summary.sharedThreePrefix}`,
           `A/B: ${summary.abPrefix}`,
@@ -915,6 +980,7 @@
           sampleB: { mimeTypes: b.report?.mimeTypes || [], metadata: b.metadataJson || null, bufferLength: b.bufferBytes.length },
           sampleC: { mimeTypes: c.report?.mimeTypes || [], metadata: c.metadataJson || null, bufferLength: c.bufferBytes.length },
           compare3: summary,
+          compare3Segments: clusterView,
         };
       } catch (error) {
         compare3Out.textContent = `3-way compare failed: ${error.message}`;
