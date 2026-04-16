@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>html2fig clipboard inspector</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: Inter, system-ui, sans-serif;
+      background: #f7fafc;
+      color: #102a43;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 24px;
+    }
+    p {
+      font-size: 14px;
+      line-height: 1.6;
+      color: #486581;
+      margin: 0 0 12px;
+      max-width: 900px;
+    }
+    .dropzone {
+      margin-top: 18px;
+      padding: 20px;
+      border: 2px dashed #9fb3c8;
+      border-radius: 12px;
+      background: #fff;
+      min-height: 80px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      color: #486581;
+      font-weight: 600;
+    }
+    .meta, .block {
+      margin-top: 18px;
+      background: #fff;
+      border: 1px solid #d9e2ec;
+      border-radius: 12px;
+      padding: 16px;
+    }
+    .meta ul {
+      margin: 8px 0 0 18px;
+      padding: 0;
+    }
+    pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 14px;
+      border-radius: 10px;
+      overflow: auto;
+      max-height: 360px;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: #486581;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 14px;
+    }
+    button {
+      border: none;
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: #0f62fe;
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button.secondary {
+      background: #d9e2ec;
+      color: #102a43;
+    }
+  </style>
+</head>
+<body>
+  <h1>Clipboard Inspector</h1>
+  <p>Use this utility to inspect clipboard payloads. Copy something, switch here, click the box, and press <strong>Ctrl+V</strong>.</p>
+  <p>This page captures paste event payloads and displays available MIME types, plain text, HTML content, and extracted wrapper values.</p>
+
+  <div class="dropzone" id="dropzone" tabindex="0">Click here, then press Ctrl+V to inspect clipboard contents</div>
+  <div class="actions">
+    <button id="copyReportBtn">Copy report</button>
+    <button id="downloadReportBtn">Download report.json</button>
+    <button id="clearBtn" class="secondary">Clear output</button>
+  </div>
+
+  <div class="meta">
+    <div class="label">Detected MIME Types</div>
+    <ul id="typesList"><li>Nothing pasted yet</li></ul>
+  </div>
+
+  <div class="block">
+    <div class="label">Extracted data-metadata</div>
+    <pre id="metadataOut">(empty)</pre>
+  </div>
+
+  <div class="block">
+    <div class="label">Extracted data-buffer</div>
+    <pre id="bufferOut">(empty)</pre>
+  </div>
+
+  <div class="block">
+    <div class="label">text/plain</div>
+    <pre id="plainOut">(empty)</pre>
+  </div>
+
+  <div class="block">
+    <div class="label">text/html</div>
+    <pre id="htmlOut">(empty)</pre>
+  </div>
+
+  <div class="block">
+    <div class="label">Heuristic notes</div>
+    <pre id="notesOut">(none)</pre>
+  </div>
+
+  <script>
+    const dropzone = document.getElementById('dropzone');
+    const typesList = document.getElementById('typesList');
+    const metadataOut = document.getElementById('metadataOut');
+    const bufferOut = document.getElementById('bufferOut');
+    const plainOut = document.getElementById('plainOut');
+    const htmlOut = document.getElementById('htmlOut');
+    const notesOut = document.getElementById('notesOut');
+
+    let lastReport = null;
+
+    function reset() {
+      typesList.innerHTML = '<li>Nothing pasted yet</li>';
+      metadataOut.textContent = '(empty)';
+      bufferOut.textContent = '(empty)';
+      plainOut.textContent = '(empty)';
+      htmlOut.textContent = '(empty)';
+      notesOut.textContent = '(none)';
+      lastReport = null;
+    }
+
+    function extractAttribute(html, attributeName) {
+      if (!html) return '';
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const el = doc.querySelector(`[${attributeName}]`);
+      return el ? el.getAttribute(attributeName) || '' : '';
+    }
+
+    function inferNotes(html, metadata, buffer) {
+      if (!html && !metadata && !buffer) return '(none)';
+      const notes = [];
+      if (/data-metadata=/i.test(html)) notes.push('Found data-metadata attribute');
+      if (/data-buffer=/i.test(html)) notes.push('Found data-buffer attribute');
+      if (/data-figma/i.test(html)) notes.push('Found data-figma-* attributes');
+      if (/<svg[\s>]/i.test(html)) notes.push('SVG markup detected');
+      if (/<!--\(figmeta\)/i.test(metadata)) notes.push('figmeta wrapper detected');
+      if (/<!--\(figma\)/i.test(buffer)) notes.push('figma wrapper detected');
+      if (/base64/i.test(html)) notes.push('Base64-like marker text detected');
+      return notes.length ? notes.join('\n') : '(none)';
+    }
+
+    function buildReport(types, plain, html, metadata, buffer, notes) {
+      return {
+        capturedAt: new Date().toISOString(),
+        mimeTypes: types,
+        extracted: {
+          dataMetadata: metadata,
+          dataBuffer: buffer,
+        },
+        textPlain: plain,
+        textHtml: html,
+        notes,
+      };
+    }
+
+    async function copyReport() {
+      if (!lastReport) return;
+      await navigator.clipboard.writeText(JSON.stringify(lastReport, null, 2));
+    }
+
+    function downloadReport() {
+      if (!lastReport) return;
+      const blob = new Blob([JSON.stringify(lastReport, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `clipboard-report-${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    dropzone.addEventListener('paste', async (event) => {
+      event.preventDefault();
+      const dt = event.clipboardData;
+      if (!dt) return;
+
+      const types = Array.from(dt.types || []);
+      typesList.innerHTML = types.length ? types.map((type) => `<li>${type}</li>`).join('') : '<li>No types found</li>';
+
+      const plain = dt.getData('text/plain') || '';
+      const html = dt.getData('text/html') || '';
+      const metadata = extractAttribute(html, 'data-metadata');
+      const buffer = extractAttribute(html, 'data-buffer');
+      const notes = inferNotes(html, metadata, buffer);
+
+      metadataOut.textContent = metadata || '(empty)';
+      bufferOut.textContent = buffer || '(empty)';
+      plainOut.textContent = plain || '(empty)';
+      htmlOut.textContent = html || '(empty)';
+      notesOut.textContent = notes;
+      lastReport = buildReport(types, plain, html, metadata, buffer, notes);
+    });
+
+    document.getElementById('copyReportBtn').addEventListener('click', copyReport);
+    document.getElementById('downloadReportBtn').addEventListener('click', downloadReport);
+    document.getElementById('clearBtn').addEventListener('click', reset);
+    dropzone.focus();
+  </script>
+</body>
+</html>
