@@ -16,12 +16,16 @@
       margin: 0 0 8px;
       font-size: 24px;
     }
+    h2 {
+      margin: 0 0 10px;
+      font-size: 18px;
+    }
     p {
       font-size: 14px;
       line-height: 1.6;
       color: #486581;
       margin: 0 0 12px;
-      max-width: 980px;
+      max-width: 1080px;
     }
     textarea {
       width: 100%;
@@ -40,6 +44,12 @@
       gap: 12px;
       flex-wrap: wrap;
       margin-top: 12px;
+    }
+    .split {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 18px;
+      align-items: start;
     }
     button {
       border: none;
@@ -85,50 +95,96 @@
 </head>
 <body>
   <h1>Figma Buffer Analyzer</h1>
-  <p>Paste a clipboard report JSON, a raw <code>data-buffer</code> wrapper, or a raw <code>data-metadata</code> wrapper. This tool decodes base64 content, shows metadata JSON when available, and gives binary hints for the scene buffer.</p>
+  <p>Paste a clipboard report JSON, a raw <code>data-buffer</code> wrapper, or a raw <code>data-metadata</code> wrapper. Single mode decodes one sample. Compare mode decodes two samples and highlights shared framing, first divergence, and nearby hex/ascii windows.</p>
 
-  <div class="block">
-    <div class="label">Input</div>
-    <textarea id="input" placeholder="Paste clipboard-report JSON or raw <!--(figmeta)...--> / <!--(figma)...--> here"></textarea>
-    <div class="row">
-      <button id="analyzeBtn">Analyze</button>
-      <button id="sampleBtn" class="secondary">Load sample scaffold</button>
-      <button id="clearBtn" class="secondary">Clear</button>
+  <div class="split">
+    <div class="block">
+      <div class="label">Single input</div>
+      <textarea id="input" placeholder="Paste clipboard-report JSON or raw <!--(figmeta)...--> / <!--(figma)...--> here"></textarea>
+      <div class="row">
+        <button id="analyzeBtn">Analyze</button>
+        <button id="sampleBtn" class="secondary">Load sample scaffold</button>
+        <button id="clearBtn" class="secondary">Clear</button>
+      </div>
+    </div>
+
+    <div class="block">
+      <div class="label">Compare input A</div>
+      <textarea id="compareA" placeholder="Paste sample A here"></textarea>
+      <div class="label" style="margin-top:12px;">Compare input B</div>
+      <textarea id="compareB" placeholder="Paste sample B here"></textarea>
+      <div class="row">
+        <button id="compareBtn">Compare A/B</button>
+        <button id="compareSampleBtn" class="secondary">Load compare scaffold</button>
+        <button id="compareClearBtn" class="secondary">Clear compare</button>
+      </div>
     </div>
   </div>
 
-  <div class="block">
-    <div class="label">Summary</div>
-    <pre id="summaryOut">(empty)</pre>
-  </div>
+  <div class="split">
+    <div>
+      <div class="block">
+        <div class="label">Summary</div>
+        <pre id="summaryOut">(empty)</pre>
+      </div>
 
-  <div class="block">
-    <div class="label">Decoded metadata</div>
-    <pre id="metadataOut">(empty)</pre>
-  </div>
+      <div class="block">
+        <div class="label">Decoded metadata</div>
+        <pre id="metadataOut">(empty)</pre>
+      </div>
 
-  <div class="block">
-    <div class="label">Buffer hints</div>
-    <pre id="bufferOut">(empty)</pre>
-  </div>
+      <div class="block">
+        <div class="label">Buffer hints</div>
+        <pre id="bufferOut">(empty)</pre>
+      </div>
 
-  <div class="block">
-    <div class="label">Hex preview</div>
-    <pre id="hexOut">(empty)</pre>
-  </div>
+      <div class="block">
+        <div class="label">Hex preview</div>
+        <pre id="hexOut">(empty)</pre>
+      </div>
 
-  <div class="block">
-    <div class="label">ASCII preview</div>
-    <pre id="asciiOut">(empty)</pre>
+      <div class="block">
+        <div class="label">ASCII preview</div>
+        <pre id="asciiOut">(empty)</pre>
+      </div>
+    </div>
+
+    <div>
+      <div class="block">
+        <div class="label">Compare summary</div>
+        <pre id="compareSummaryOut">(empty)</pre>
+      </div>
+
+      <div class="block">
+        <div class="label">Compare metadata</div>
+        <pre id="compareMetadataOut">(empty)</pre>
+      </div>
+
+      <div class="block">
+        <div class="label">Divergence window (hex)</div>
+        <pre id="compareHexOut">(empty)</pre>
+      </div>
+
+      <div class="block">
+        <div class="label">Divergence window (ASCII / UTF-8)</div>
+        <pre id="compareAsciiOut">(empty)</pre>
+      </div>
+    </div>
   </div>
 
   <script>
     const inputEl = document.getElementById('input');
+    const compareAEl = document.getElementById('compareA');
+    const compareBEl = document.getElementById('compareB');
     const summaryOut = document.getElementById('summaryOut');
     const metadataOut = document.getElementById('metadataOut');
     const bufferOut = document.getElementById('bufferOut');
     const hexOut = document.getElementById('hexOut');
     const asciiOut = document.getElementById('asciiOut');
+    const compareSummaryOut = document.getElementById('compareSummaryOut');
+    const compareMetadataOut = document.getElementById('compareMetadataOut');
+    const compareHexOut = document.getElementById('compareHexOut');
+    const compareAsciiOut = document.getElementById('compareAsciiOut');
 
     function resetOutputs() {
       summaryOut.textContent = '(empty)';
@@ -136,6 +192,13 @@
       bufferOut.textContent = '(empty)';
       hexOut.textContent = '(empty)';
       asciiOut.textContent = '(empty)';
+    }
+
+    function resetCompareOutputs() {
+      compareSummaryOut.textContent = '(empty)';
+      compareMetadataOut.textContent = '(empty)';
+      compareHexOut.textContent = '(empty)';
+      compareAsciiOut.textContent = '(empty)';
     }
 
     function stripWrapper(text, tag) {
@@ -168,15 +231,16 @@
       }
     }
 
-    function toHex(bytes, limit = 128) {
-      return Array.from(bytes.slice(0, limit)).map((b, i) => {
-        const prefix = i % 16 === 0 ? `\n${String(i).padStart(4, '0')}: ` : '';
+    function toHex(bytes, limit = 128, offset = 0) {
+      return Array.from(bytes.slice(offset, offset + limit)).map((b, i) => {
+        const absoluteIndex = offset + i;
+        const prefix = i % 16 === 0 ? `\n${String(absoluteIndex).padStart(6, '0')}: ` : '';
         return `${prefix}${b.toString(16).padStart(2, '0')}`;
       }).join('').trim() || '(empty)';
     }
 
-    function toAscii(bytes, limit = 256) {
-      return Array.from(bytes.slice(0, limit)).map((b) => (b >= 32 && b <= 126 ? String.fromCharCode(b) : '.')).join('') || '(empty)';
+    function toAscii(bytes, limit = 256, offset = 0) {
+      return Array.from(bytes.slice(offset, offset + limit)).map((b) => (b >= 32 && b <= 126 ? String.fromCharCode(b) : '.')).join('') || '(empty)';
     }
 
     function analyzeBuffer(bytes) {
@@ -217,55 +281,211 @@
       };
     }
 
+    function decodeSample(raw) {
+      const { report, metadataWrapped, bufferWrapped } = extractPayloads(raw.trim());
+      const encodedMeta = stripWrapper(metadataWrapped, 'figmeta');
+      const encodedBuffer = stripWrapper(bufferWrapped, 'figma');
+      let metadataJson = null;
+      let metadataText = '';
+      let bufferBytes = null;
+      let bufferUtf8 = '';
+
+      if (encodedMeta) {
+        const metaBytes = base64ToBytes(encodedMeta);
+        metadataText = bytesToUtf8(metaBytes);
+        metadataJson = tryParseJson(metadataText);
+      }
+      if (encodedBuffer) {
+        bufferBytes = base64ToBytes(encodedBuffer);
+        bufferUtf8 = bytesToUtf8(bufferBytes);
+      }
+
+      return {
+        report,
+        encodedMeta,
+        encodedBuffer,
+        metadataJson,
+        metadataText,
+        bufferBytes,
+        bufferUtf8,
+      };
+    }
+
+    function formatMetadata(meta) {
+      if (!meta) return '(none)';
+      return JSON.stringify(meta, null, 2);
+    }
+
     function analyze() {
       resetOutputs();
       const raw = inputEl.value.trim();
       if (!raw) return;
 
-      const { report, metadataWrapped, bufferWrapped } = extractPayloads(raw);
-      const encodedMeta = stripWrapper(metadataWrapped, 'figmeta');
-      const encodedBuffer = stripWrapper(bufferWrapped, 'figma');
-
-      const summary = [];
-      if (report) {
-        summary.push(`Captured at: ${report.capturedAt || '(unknown)'}`);
-        summary.push(`MIME types: ${(report.mimeTypes || []).join(', ') || '(none)'}`);
-        summary.push(`Plain text length: ${(report.textPlain || '').length}`);
-        summary.push(`HTML length: ${(report.textHtml || '').length}`);
-      }
-      summary.push(`Metadata wrapper found: ${encodedMeta ? 'yes' : 'no'}`);
-      summary.push(`Buffer wrapper found: ${encodedBuffer ? 'yes' : 'no'}`);
-      summaryOut.textContent = summary.join('\n') || '(empty)';
-
-      if (encodedMeta) {
-        try {
-          const metaBytes = base64ToBytes(encodedMeta);
-          const metaText = bytesToUtf8(metaBytes);
-          const metaJson = tryParseJson(metaText);
-          metadataOut.textContent = metaJson ? JSON.stringify(metaJson, null, 2) : metaText || '(decoded but unreadable)';
-        } catch (error) {
-          metadataOut.textContent = `Failed to decode metadata: ${error.message}`;
+      try {
+        const sample = decodeSample(raw);
+        const summary = [];
+        if (sample.report) {
+          summary.push(`Captured at: ${sample.report.capturedAt || '(unknown)'}`);
+          summary.push(`MIME types: ${(sample.report.mimeTypes || []).join(', ') || '(none)'}`);
+          summary.push(`Plain text length: ${(sample.report.textPlain || '').length}`);
+          summary.push(`HTML length: ${(sample.report.textHtml || '').length}`);
         }
-      }
+        summary.push(`Metadata wrapper found: ${sample.encodedMeta ? 'yes' : 'no'}`);
+        summary.push(`Buffer wrapper found: ${sample.encodedBuffer ? 'yes' : 'no'}`);
+        summaryOut.textContent = summary.join('\n') || '(empty)';
 
-      if (encodedBuffer) {
-        try {
-          const bufferBytes = base64ToBytes(encodedBuffer);
-          const analyzed = analyzeBuffer(bufferBytes);
+        metadataOut.textContent = sample.metadataJson
+          ? JSON.stringify(sample.metadataJson, null, 2)
+          : sample.metadataText || '(empty)';
+
+        if (sample.bufferBytes) {
+          const analyzed = analyzeBuffer(sample.bufferBytes);
           bufferOut.textContent = analyzed.hints;
-          hexOut.textContent = toHex(bufferBytes, 256);
-          asciiOut.textContent = analyzed.utf8.slice(0, 512) || toAscii(bufferBytes, 256);
-        } catch (error) {
-          bufferOut.textContent = `Failed to decode buffer: ${error.message}`;
+          hexOut.textContent = toHex(sample.bufferBytes, 256);
+          asciiOut.textContent = analyzed.utf8.slice(0, 512) || toAscii(sample.bufferBytes, 256);
         }
+      } catch (error) {
+        summaryOut.textContent = `Analyze failed: ${error.message}`;
+      }
+    }
+
+    function findCommonPrefixLength(a, b) {
+      const limit = Math.min(a.length, b.length);
+      let i = 0;
+      while (i < limit && a[i] === b[i]) i += 1;
+      return i;
+    }
+
+    function findCommonSuffixLength(a, b, prefixLength = 0) {
+      const max = Math.min(a.length, b.length) - prefixLength;
+      let i = 0;
+      while (i < max && a[a.length - 1 - i] === b[b.length - 1 - i]) i += 1;
+      return i;
+    }
+
+    function formatDiffWindow(bytes, offset, radius = 64) {
+      if (!bytes || !bytes.length) return { start: 0, hex: '(empty)', ascii: '(empty)', utf8: '(empty)' };
+      const start = Math.max(0, offset - radius);
+      const length = Math.min(bytes.length - start, radius * 2);
+      const utf8 = bytesToUtf8(bytes.slice(start, start + length));
+      return {
+        start,
+        hex: toHex(bytes, length, start),
+        ascii: toAscii(bytes, length, start),
+        utf8: utf8 || '(empty)',
+      };
+    }
+
+    function compareMetadata(metaA, metaB) {
+      const keys = new Set([
+        ...Object.keys(metaA || {}),
+        ...Object.keys(metaB || {}),
+      ]);
+      const lines = [];
+      if (!keys.size) return '(none)';
+      Array.from(keys).sort().forEach((key) => {
+        const a = metaA ? metaA[key] : undefined;
+        const b = metaB ? metaB[key] : undefined;
+        const status = a === b ? 'same' : 'diff';
+        lines.push(`${key}: ${status}`);
+        lines.push(`  A = ${JSON.stringify(a)}`);
+        lines.push(`  B = ${JSON.stringify(b)}`);
+      });
+      return lines.join('\n');
+    }
+
+    function compareSamples() {
+      resetCompareOutputs();
+      const rawA = compareAEl.value.trim();
+      const rawB = compareBEl.value.trim();
+      if (!rawA || !rawB) return;
+
+      try {
+        const a = decodeSample(rawA);
+        const b = decodeSample(rawB);
+        if (!a.bufferBytes || !b.bufferBytes) {
+          compareSummaryOut.textContent = 'Both A and B need decodable data-buffer content.';
+          return;
+        }
+
+        const prefixLength = findCommonPrefixLength(a.bufferBytes, b.bufferBytes);
+        const suffixLength = findCommonSuffixLength(a.bufferBytes, b.bufferBytes, prefixLength);
+        const firstDiff = prefixLength < Math.min(a.bufferBytes.length, b.bufferBytes.length) ? prefixLength : -1;
+        const lastSharedStartA = a.bufferBytes.length - suffixLength;
+        const lastSharedStartB = b.bufferBytes.length - suffixLength;
+        const windowOffset = firstDiff === -1 ? Math.max(0, Math.min(a.bufferBytes.length, b.bufferBytes.length) - 64) : firstDiff;
+        const windowA = formatDiffWindow(a.bufferBytes, windowOffset);
+        const windowB = formatDiffWindow(b.bufferBytes, windowOffset);
+
+        const summary = [];
+        summary.push(`A byte length: ${a.bufferBytes.length}`);
+        summary.push(`B byte length: ${b.bufferBytes.length}`);
+        summary.push(`Length delta (A-B): ${a.bufferBytes.length - b.bufferBytes.length}`);
+        summary.push(`Common prefix length: ${prefixLength}`);
+        summary.push(`Common suffix length: ${suffixLength}`);
+        summary.push(`First differing offset: ${firstDiff === -1 ? 'none (shorter buffer may fully match prefix)' : firstDiff}`);
+        summary.push(`A shared suffix starts at: ${lastSharedStartA}`);
+        summary.push(`B shared suffix starts at: ${lastSharedStartB}`);
+        summary.push(`A MIME types: ${(a.report?.mimeTypes || []).join(', ') || '(none)'}`);
+        summary.push(`B MIME types: ${(b.report?.mimeTypes || []).join(', ') || '(none)'}`);
+        compareSummaryOut.textContent = summary.join('\n');
+
+        compareMetadataOut.textContent = [
+          'Metadata diff',
+          '============',
+          compareMetadata(a.metadataJson, b.metadataJson),
+          '',
+          'Metadata A',
+          '----------',
+          formatMetadata(a.metadataJson),
+          '',
+          'Metadata B',
+          '----------',
+          formatMetadata(b.metadataJson),
+        ].join('\n');
+
+        compareHexOut.textContent = [
+          `Window center offset: ${windowOffset}`,
+          '',
+          `A @ ${windowA.start}`,
+          windowA.hex,
+          '',
+          `B @ ${windowB.start}`,
+          windowB.hex,
+        ].join('\n');
+
+        compareAsciiOut.textContent = [
+          `A ASCII @ ${windowA.start}`,
+          windowA.ascii,
+          '',
+          `A UTF-8 @ ${windowA.start}`,
+          windowA.utf8,
+          '',
+          `B ASCII @ ${windowB.start}`,
+          windowB.ascii,
+          '',
+          `B UTF-8 @ ${windowB.start}`,
+          windowB.utf8,
+        ].join('\n');
+      } catch (error) {
+        compareSummaryOut.textContent = `Compare failed: ${error.message}`;
       }
     }
 
     document.getElementById('analyzeBtn').addEventListener('click', analyze);
+    document.getElementById('compareBtn').addEventListener('click', compareSamples);
+
     document.getElementById('clearBtn').addEventListener('click', () => {
       inputEl.value = '';
       resetOutputs();
     });
+
+    document.getElementById('compareClearBtn').addEventListener('click', () => {
+      compareAEl.value = '';
+      compareBEl.value = '';
+      resetCompareOutputs();
+    });
+
     document.getElementById('sampleBtn').addEventListener('click', () => {
       inputEl.value = JSON.stringify({
         capturedAt: new Date().toISOString(),
@@ -278,6 +498,22 @@
         textHtml: ''
       }, null, 2);
       resetOutputs();
+    });
+
+    document.getElementById('compareSampleBtn').addEventListener('click', () => {
+      const scaffold = JSON.stringify({
+        capturedAt: new Date().toISOString(),
+        mimeTypes: ['text/html'],
+        extracted: {
+          dataMetadata: '<!--(figmeta)PASTE_METADATA_BASE64_HERE(/figmeta)-->',
+          dataBuffer: '<!--(figma)PASTE_BUFFER_BASE64_HERE(/figma)-->'
+        },
+        textPlain: '',
+        textHtml: ''
+      }, null, 2);
+      compareAEl.value = scaffold;
+      compareBEl.value = scaffold;
+      resetCompareOutputs();
     });
   </script>
 </body>
