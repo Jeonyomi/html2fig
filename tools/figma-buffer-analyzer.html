@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>html2fig figma buffer analyzer</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: Inter, system-ui, sans-serif;
+      background: #f7fafc;
+      color: #102a43;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 24px;
+    }
+    p {
+      font-size: 14px;
+      line-height: 1.6;
+      color: #486581;
+      margin: 0 0 12px;
+      max-width: 980px;
+    }
+    textarea {
+      width: 100%;
+      min-height: 180px;
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px solid #cbd2d9;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 12px;
+      box-sizing: border-box;
+      background: #fff;
+      resize: vertical;
+    }
+    .row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+    button {
+      border: none;
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: #0f62fe;
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button.secondary {
+      background: #d9e2ec;
+      color: #102a43;
+    }
+    .block {
+      margin-top: 18px;
+      background: #fff;
+      border: 1px solid #d9e2ec;
+      border-radius: 12px;
+      padding: 16px;
+    }
+    .label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: #486581;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 14px;
+      border-radius: 10px;
+      overflow: auto;
+      max-height: 420px;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <h1>Figma Buffer Analyzer</h1>
+  <p>Paste a clipboard report JSON, a raw <code>data-buffer</code> wrapper, or a raw <code>data-metadata</code> wrapper. This tool decodes base64 content, shows metadata JSON when available, and gives binary hints for the scene buffer.</p>
+
+  <div class="block">
+    <div class="label">Input</div>
+    <textarea id="input" placeholder="Paste clipboard-report JSON or raw <!--(figmeta)...--> / <!--(figma)...--> here"></textarea>
+    <div class="row">
+      <button id="analyzeBtn">Analyze</button>
+      <button id="sampleBtn" class="secondary">Load sample scaffold</button>
+      <button id="clearBtn" class="secondary">Clear</button>
+    </div>
+  </div>
+
+  <div class="block">
+    <div class="label">Summary</div>
+    <pre id="summaryOut">(empty)</pre>
+  </div>
+
+  <div class="block">
+    <div class="label">Decoded metadata</div>
+    <pre id="metadataOut">(empty)</pre>
+  </div>
+
+  <div class="block">
+    <div class="label">Buffer hints</div>
+    <pre id="bufferOut">(empty)</pre>
+  </div>
+
+  <div class="block">
+    <div class="label">Hex preview</div>
+    <pre id="hexOut">(empty)</pre>
+  </div>
+
+  <div class="block">
+    <div class="label">ASCII preview</div>
+    <pre id="asciiOut">(empty)</pre>
+  </div>
+
+  <script>
+    const inputEl = document.getElementById('input');
+    const summaryOut = document.getElementById('summaryOut');
+    const metadataOut = document.getElementById('metadataOut');
+    const bufferOut = document.getElementById('bufferOut');
+    const hexOut = document.getElementById('hexOut');
+    const asciiOut = document.getElementById('asciiOut');
+
+    function resetOutputs() {
+      summaryOut.textContent = '(empty)';
+      metadataOut.textContent = '(empty)';
+      bufferOut.textContent = '(empty)';
+      hexOut.textContent = '(empty)';
+      asciiOut.textContent = '(empty)';
+    }
+
+    function stripWrapper(text, tag) {
+      if (!text) return '';
+      const pattern = new RegExp(`<!--\\(${tag}\\)([\\s\\S]*?)\\(\\/${tag}\\)-->", 'i');
+      const match = text.match(pattern);
+      return match ? match[1].trim() : '';
+    }
+
+    function tryParseJson(text) {
+      try {
+        return JSON.parse(text);
+      } catch {
+        return null;
+      }
+    }
+
+    function base64ToBytes(base64) {
+      const binary = atob(base64.replace(/\s+/g, ''));
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+      return bytes;
+    }
+
+    function bytesToUtf8(bytes) {
+      try {
+        return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+      } catch {
+        return '';
+      }
+    }
+
+    function toHex(bytes, limit = 128) {
+      return Array.from(bytes.slice(0, limit)).map((b, i) => {
+        const prefix = i % 16 === 0 ? `\n${String(i).padStart(4, '0')}: ` : '';
+        return `${prefix}${b.toString(16).padStart(2, '0')}`;
+      }).join('').trim() || '(empty)';
+    }
+
+    function toAscii(bytes, limit = 256) {
+      return Array.from(bytes.slice(0, limit)).map((b) => (b >= 32 && b <= 126 ? String.fromCharCode(b) : '.')).join('') || '(empty)';
+    }
+
+    function analyzeBuffer(bytes) {
+      const utf8 = bytesToUtf8(bytes);
+      const hints = [];
+      hints.push(`Byte length: ${bytes.length}`);
+      hints.push(`First 8 bytes (hex): ${Array.from(bytes.slice(0, 8)).map((b) => b.toString(16).padStart(2, '0')).join(' ') || '(none)'}`);
+      if (utf8.startsWith('fig-')) hints.push('UTF-8 prefix starts with fig-');
+      if (utf8.includes('kiwi')) hints.push('UTF-8 preview contains kiwi');
+      if (bytes[0] === 0x1f && bytes[1] === 0x8b) hints.push('Looks like gzip header');
+      if (bytes[0] === 0x78) hints.push('Might be zlib/deflate stream');
+      const zeroCount = bytes.reduce((sum, b) => sum + (b === 0 ? 1 : 0), 0);
+      hints.push(`Zero-byte count: ${zeroCount}`);
+      hints.push(`Printable ASCII ratio (preview): ${(() => {
+        const preview = bytes.slice(0, Math.min(bytes.length, 256));
+        const printable = Array.from(preview).filter((b) => b >= 32 && b <= 126).length;
+        return `${printable}/${preview.length}`;
+      })()}`);
+      const maybeJson = tryParseJson(utf8);
+      if (maybeJson) hints.push('Decoded buffer is valid JSON');
+      else hints.push('Decoded buffer is not plain JSON');
+      return { hints: hints.join('\n'), utf8 };
+    }
+
+    function extractPayloads(raw) {
+      const parsed = tryParseJson(raw);
+      if (parsed && parsed.extracted) {
+        return {
+          report: parsed,
+          metadataWrapped: parsed.extracted.dataMetadata || '',
+          bufferWrapped: parsed.extracted.dataBuffer || '',
+        };
+      }
+      return {
+        report: null,
+        metadataWrapped: /figmeta/i.test(raw) ? raw : '',
+        bufferWrapped: /figma/i.test(raw) ? raw : '',
+      };
+    }
+
+    function analyze() {
+      resetOutputs();
+      const raw = inputEl.value.trim();
+      if (!raw) return;
+
+      const { report, metadataWrapped, bufferWrapped } = extractPayloads(raw);
+      const encodedMeta = stripWrapper(metadataWrapped, 'figmeta');
+      const encodedBuffer = stripWrapper(bufferWrapped, 'figma');
+
+      const summary = [];
+      if (report) {
+        summary.push(`Captured at: ${report.capturedAt || '(unknown)'}`);
+        summary.push(`MIME types: ${(report.mimeTypes || []).join(', ') || '(none)'}`);
+        summary.push(`Plain text length: ${(report.textPlain || '').length}`);
+        summary.push(`HTML length: ${(report.textHtml || '').length}`);
+      }
+      summary.push(`Metadata wrapper found: ${encodedMeta ? 'yes' : 'no'}`);
+      summary.push(`Buffer wrapper found: ${encodedBuffer ? 'yes' : 'no'}`);
+      summaryOut.textContent = summary.join('\n') || '(empty)';
+
+      if (encodedMeta) {
+        try {
+          const metaBytes = base64ToBytes(encodedMeta);
+          const metaText = bytesToUtf8(metaBytes);
+          const metaJson = tryParseJson(metaText);
+          metadataOut.textContent = metaJson ? JSON.stringify(metaJson, null, 2) : metaText || '(decoded but unreadable)';
+        } catch (error) {
+          metadataOut.textContent = `Failed to decode metadata: ${error.message}`;
+        }
+      }
+
+      if (encodedBuffer) {
+        try {
+          const bufferBytes = base64ToBytes(encodedBuffer);
+          const analyzed = analyzeBuffer(bufferBytes);
+          bufferOut.textContent = analyzed.hints;
+          hexOut.textContent = toHex(bufferBytes, 256);
+          asciiOut.textContent = analyzed.utf8.slice(0, 512) || toAscii(bufferBytes, 256);
+        } catch (error) {
+          bufferOut.textContent = `Failed to decode buffer: ${error.message}`;
+        }
+      }
+    }
+
+    document.getElementById('analyzeBtn').addEventListener('click', analyze);
+    document.getElementById('clearBtn').addEventListener('click', () => {
+      inputEl.value = '';
+      resetOutputs();
+    });
+    document.getElementById('sampleBtn').addEventListener('click', () => {
+      inputEl.value = JSON.stringify({
+        capturedAt: new Date().toISOString(),
+        mimeTypes: ['text/plain', 'text/html'],
+        extracted: {
+          dataMetadata: '<!--(figmeta)PASTE_METADATA_BASE64_HERE(/figmeta)-->',
+          dataBuffer: '<!--(figma)PASTE_BUFFER_BASE64_HERE(/figma)-->'
+        },
+        textPlain: '',
+        textHtml: ''
+      }, null, 2);
+      resetOutputs();
+    });
+  </script>
+</body>
+</html>
