@@ -169,6 +169,11 @@
         <div class="label">Divergence window (ASCII / UTF-8)</div>
         <pre id="compareAsciiOut">(empty)</pre>
       </div>
+
+      <div class="block">
+        <div class="label">Tail structure analysis</div>
+        <pre id="compareTailOut">(empty)</pre>
+      </div>
     </div>
   </div>
 
@@ -185,6 +190,7 @@
     const compareMetadataOut = document.getElementById('compareMetadataOut');
     const compareHexOut = document.getElementById('compareHexOut');
     const compareAsciiOut = document.getElementById('compareAsciiOut');
+    const compareTailOut = document.getElementById('compareTailOut');
 
     function resetOutputs() {
       summaryOut.textContent = '(empty)';
@@ -199,6 +205,7 @@
       compareMetadataOut.textContent = '(empty)';
       compareHexOut.textContent = '(empty)';
       compareAsciiOut.textContent = '(empty)';
+      compareTailOut.textContent = '(empty)';
     }
 
     function stripWrapper(text, tag) {
@@ -394,6 +401,60 @@
       return lines.join('\n');
     }
 
+    function summarizeByteRuns(bytes) {
+      if (!bytes || !bytes.length) return ['(empty)'];
+      const runs = [];
+      let runStart = 0;
+      for (let i = 1; i <= bytes.length; i += 1) {
+        if (i === bytes.length || bytes[i] !== bytes[i - 1]) {
+          const length = i - runStart;
+          if (length >= 4) {
+            runs.push(`offset ${runStart}: byte 0x${bytes[runStart].toString(16).padStart(2, '0')} repeated ${length} times`);
+          }
+          runStart = i;
+        }
+      }
+      return runs.slice(0, 12).length ? runs.slice(0, 12) : ['(no repeated-byte runs >= 4 in preview)'];
+    }
+
+    function findPrintableStrings(bytes, minLength = 4) {
+      if (!bytes || !bytes.length) return [];
+      const out = [];
+      let start = -1;
+      for (let i = 0; i <= bytes.length; i += 1) {
+        const isPrintable = i < bytes.length && bytes[i] >= 32 && bytes[i] <= 126;
+        if (isPrintable && start === -1) start = i;
+        if ((!isPrintable || i === bytes.length) && start !== -1) {
+          const slice = bytes.slice(start, i);
+          if (slice.length >= minLength) {
+            out.push(`offset ${start}: ${Array.from(slice).map((b) => String.fromCharCode(b)).join('')}`);
+          }
+          start = -1;
+        }
+      }
+      return out.slice(0, 16);
+    }
+
+    function analyzeTailRegion(bytes, startOffset) {
+      if (!bytes || !bytes.length) return '(empty)';
+      const tail = bytes.slice(startOffset);
+      const lines = [];
+      lines.push(`Tail starts at: ${startOffset}`);
+      lines.push(`Tail byte length: ${tail.length}`);
+      lines.push(`Tail zero-byte count: ${tail.reduce((sum, b) => sum + (b === 0 ? 1 : 0), 0)}`);
+      lines.push(`Tail first 16 bytes: ${Array.from(tail.slice(0, 16)).map((b) => b.toString(16).padStart(2, '0')).join(' ') || '(empty)'}`);
+      lines.push('');
+      lines.push('Repeated-byte runs');
+      lines.push('------------------');
+      lines.push(...summarizeByteRuns(tail));
+      lines.push('');
+      lines.push('Printable strings in tail');
+      lines.push('------------------------');
+      const strings = findPrintableStrings(tail, 4);
+      lines.push(...(strings.length ? strings : ['(none)']));
+      return lines.join('\n');
+    }
+
     function compareSamples() {
       resetCompareOutputs();
       const rawA = compareAEl.value.trim();
@@ -466,6 +527,16 @@
           '',
           `B UTF-8 @ ${windowB.start}`,
           windowB.utf8,
+        ].join('\n');
+
+        compareTailOut.textContent = [
+          'A tail analysis',
+          '===============',
+          analyzeTailRegion(a.bufferBytes, Math.max(0, prefixLength)),
+          '',
+          'B tail analysis',
+          '===============',
+          analyzeTailRegion(b.bufferBytes, Math.max(0, prefixLength)),
         ].join('\n');
       } catch (error) {
         compareSummaryOut.textContent = `Compare failed: ${error.message}`;
