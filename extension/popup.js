@@ -102,6 +102,15 @@ const REAL_BUFFER_SPLICE_TEMPLATES = {
   },
 };
 
+const DERIVED_FIELD_PATCHES = [
+  { name: 'zero-4-7', start: 4, length: 4, mode: 'zero' },
+  { name: 'ff-4-7', start: 4, length: 4, mode: 'ff' },
+  { name: 'zero-8-11', start: 8, length: 4, mode: 'zero' },
+  { name: 'ff-8-11', start: 8, length: 4, mode: 'ff' },
+  { name: 'zero-12-15', start: 12, length: 4, mode: 'zero' },
+  { name: 'repeat-head-16-23', start: 16, length: 8, mode: 'repeat-head' },
+];
+
 function hexToBytes(hex) {
   const clean = (hex || '').replace(/\s+/g, '');
   const out = new Uint8Array(clean.length / 2);
@@ -149,6 +158,20 @@ function buildSyntheticSceneBuffer(data, options = {}) {
   return base64FromBytes(out);
 }
 
+function applyDerivedPatch(middle, patch) {
+  const out = middle.slice();
+  const start = Math.max(0, Math.min(out.length, patch.start || 0));
+  const end = Math.max(start, Math.min(out.length, start + (patch.length || 0)));
+  if (patch.mode === 'zero') {
+    out.fill(0x00, start, end);
+  } else if (patch.mode === 'ff') {
+    out.fill(0xff, start, end);
+  } else if (patch.mode === 'repeat-head') {
+    for (let i = start; i < end; i += 1) out[i] = out[(i - start) % Math.max(1, start || 1)];
+  }
+  return out;
+}
+
 function buildSpliceProbeBuffer(data, templateKey, options = {}) {
   const template = REAL_BUFFER_SPLICE_TEMPLATES[templateKey];
   if (!template) return null;
@@ -169,10 +192,11 @@ function buildSpliceProbeBuffer(data, templateKey, options = {}) {
   const spliceHead = tail.slice(0, spliceHeadLength);
   const trailer = hexToBytes(template.trailerHex);
   const middleBudget = Math.max(0, tail.length - spliceHeadLength - trailer.length);
-  const middle = new Uint8Array(middleBudget);
+  let middle = new Uint8Array(middleBudget);
   for (let i = 0; i < middle.length; i += 1) {
     middle[i] = payload.length ? payload[i % payload.length] : 0;
   }
+  if (options.patch) middle = applyDerivedPatch(middle, options.patch);
   const out = new Uint8Array(prefix.length + spliceHead.length + middle.length + trailer.length);
   out.set(prefix, 0);
   out.set(spliceHead, prefix.length);
@@ -183,7 +207,7 @@ function buildSpliceProbeBuffer(data, templateKey, options = {}) {
 
 function buildProbeVariants(data) {
   const json = JSON.stringify(data);
-  return [
+  const baseVariants = [
     {
       label: 'base64-json',
       metadata: createProbeMetadata(data, { version: 1, type: 'figma-rich-probe', variant: 'base64-json' }),
@@ -214,7 +238,19 @@ function buildProbeVariants(data) {
       metadata: createProbeMetadata(data, { version: 3, type: 'figma-rich-probe', variant: 'splice-mixed-tail', spliceTemplate: 'mixed' }),
       buffer: buildSpliceProbeBuffer(data, 'mixed', { variantLabel: 'splice-mixed-tail' }),
     },
-  ].filter((variant) => !!variant.buffer);
+  ];
+  const derivedVariants = ['rectangle', 'text', 'mixed'].flatMap((templateKey) => DERIVED_FIELD_PATCHES.map((patch) => ({
+    label: `splice-${templateKey}-${patch.name}`,
+    metadata: createProbeMetadata(data, {
+      version: 4,
+      type: 'figma-rich-probe',
+      variant: `splice-${templateKey}-${patch.name}`,
+      spliceTemplate: templateKey,
+      derivedPatch: patch.name,
+    }),
+    buffer: buildSpliceProbeBuffer(data, templateKey, { variantLabel: `splice-${templateKey}-${patch.name}`, patch }),
+  })));
+  return [...baseVariants, ...derivedVariants].filter((variant) => !!variant.buffer);
 }
 
 function serializeSingleProbeVariantHtml(data, variant) {
