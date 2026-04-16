@@ -193,6 +193,11 @@
         <div class="label">3-way summary</div>
         <pre id="compare3Out">(empty)</pre>
       </div>
+
+      <div class="block">
+        <div class="label">Delta clusters</div>
+        <pre id="compareClusterOut">(empty)</pre>
+      </div>
     </div>
   </div>
 
@@ -214,6 +219,7 @@
     const compareFieldOut = document.getElementById('compareFieldOut');
     const compareDeltaOut = document.getElementById('compareDeltaOut');
     const compare3Out = document.getElementById('compare3Out');
+    const compareClusterOut = document.getElementById('compareClusterOut');
 
     function resetOutputs() {
       summaryOut.textContent = '(empty)';
@@ -232,6 +238,7 @@
       compareFieldOut.textContent = '(empty)';
       compareDeltaOut.textContent = '(empty)';
       compare3Out.textContent = '(empty)';
+      compareClusterOut.textContent = '(empty)';
     }
 
     function stripWrapper(text, tag) {
@@ -618,6 +625,49 @@
       return lines.join('\n');
     }
 
+    function clusterDeltas(deltas, gapThreshold = 8) {
+      if (!deltas.length) return [];
+      const clusters = [];
+      let current = { start: deltas[0].tailOffset, end: deltas[0].tailOffset, items: [deltas[0]] };
+      for (let i = 1; i < deltas.length; i += 1) {
+        const entry = deltas[i];
+        if (entry.tailOffset - current.end <= gapThreshold) {
+          current.end = entry.tailOffset;
+          current.items.push(entry);
+        } else {
+          clusters.push(current);
+          current = { start: entry.tailOffset, end: entry.tailOffset, items: [entry] };
+        }
+      }
+      clusters.push(current);
+      return clusters;
+    }
+
+    function renderDeltaClusters(delta, prefixLength) {
+      const clusters = clusterDeltas(delta.firstDeltas, 8);
+      const lines = [];
+      lines.push(`Cluster count (from first ${delta.firstDeltas.length} deltas): ${clusters.length}`);
+      lines.push(`Prefix anchor: ${prefixLength}`);
+      lines.push('');
+      if (!clusters.length) {
+        lines.push('(no clusters)');
+        return lines.join('\n');
+      }
+      clusters.forEach((cluster, index) => {
+        lines.push(`Cluster ${index + 1}`);
+        lines.push(`  tail range: ${cluster.start}..${cluster.end}`);
+        lines.push(`  absolute range: ${prefixLength + cluster.start}..${prefixLength + cluster.end}`);
+        lines.push(`  differing bytes in cluster: ${cluster.items.length}`);
+        const preview = cluster.items.slice(0, 8).map((entry) => `t${entry.tailOffset}: ${entry.a.toString(16).padStart(2, '0')} -> ${entry.b.toString(16).padStart(2, '0')}`);
+        lines.push(`  preview: ${preview.join(', ')}`);
+        lines.push('');
+      });
+      lines.push('Interpretation');
+      lines.push('-------------');
+      lines.push('Clusters are candidate object/property subsegments inside the differing tail region.');
+      return lines.join('\n');
+    }
+
     function buildCompareExport(a, b, prefixLength, suffixLength, firstDiff) {
       const delta = buildTailDelta(a.bufferBytes, b.bufferBytes, Math.max(0, prefixLength));
       return {
@@ -781,6 +831,7 @@
 
         const delta = buildTailDelta(a.bufferBytes, b.bufferBytes, Math.max(0, prefixLength));
         compareDeltaOut.textContent = renderTailDelta(delta);
+        compareClusterOut.textContent = renderDeltaClusters(delta, Math.max(0, prefixLength));
         lastCompareExport = buildCompareExport(a, b, prefixLength, suffixLength, firstDiff);
       } catch (error) {
         compareSummaryOut.textContent = `Compare failed: ${error.message}`;
