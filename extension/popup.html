@@ -78,7 +78,7 @@
     }
     .matrix-row {
       display: grid;
-      grid-template-columns: 1fr auto auto;
+      grid-template-columns: 1fr auto auto auto;
       gap: 6px;
       align-items: center;
       margin-top: 6px;
@@ -96,6 +96,15 @@
       padding: 6px 8px;
       font-size: 11px;
       border-radius: 6px;
+    }
+    .mini.primary {
+      background: #0f62fe;
+      color: #fff;
+    }
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
     }
   </style>
 </head>
@@ -117,6 +126,10 @@
   </div>
   <div class="matrix" id="variantMatrix" hidden>
     <div class="matrix-title">Native paste probe variants</div>
+    <div class="toolbar">
+      <button class="secondary mini" id="nextVariantBtn" type="button">Copy Next</button>
+      <button class="secondary mini" id="exportMatrixBtn" type="button">Export Matrix</button>
+    </div>
     <div id="variantRows"></div>
   </div>
   <div class="status" id="status"></div>

@@ -2,10 +2,15 @@ const statusEl = document.getElementById('status');
 const modeEl = document.getElementById('mode');
 const variantMatrixEl = document.getElementById('variantMatrix');
 const variantRowsEl = document.getElementById('variantRows');
+const nextVariantBtn = document.getElementById('nextVariantBtn');
+const exportMatrixBtn = document.getElementById('exportMatrixBtn');
+
+const ACCEPTANCE_STORAGE_KEY = 'html2fig-native-paste-matrix-v1';
 
 let lastCapturedData = null;
 let lastProbeVariants = [];
-let acceptanceLog = {};
+let acceptanceLog = loadAcceptanceLog();
+let nextVariantIndex = 0;
 
 function escapeHtml(text) {
   return String(text).replace(/[&<>]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]));
@@ -247,6 +252,71 @@ function serializeSvgPayload(data) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="120"><rect width="100%" height="100%" fill="#ffffff"/><text x="24" y="48" font-size="28" font-family="Arial, sans-serif" fill="#102a43">${title}</text><text x="24" y="86" font-size="16" font-family="Arial, sans-serif" fill="#486581">html2fig experimental SVG clipboard payload</text></svg>`;
 }
 
+function loadAcceptanceLog() {
+  try {
+    return JSON.parse(localStorage.getItem(ACCEPTANCE_STORAGE_KEY) || '{}') || {};
+  } catch {
+    return {};
+  }
+}
+
+function saveAcceptanceLog() {
+  try {
+    localStorage.setItem(ACCEPTANCE_STORAGE_KEY, JSON.stringify(acceptanceLog));
+  } catch {}
+}
+
+function getVariantRecord(label) {
+  return acceptanceLog[label] || { verdict: null, attempts: 0, notes: '' };
+}
+
+function setVariantVerdict(label, verdict) {
+  const record = getVariantRecord(label);
+  const nextRecord = {
+    ...record,
+    verdict,
+    attempts: record.attempts + 1,
+    updatedAt: new Date().toISOString(),
+  };
+  if (!verdict && !nextRecord.notes && !nextRecord.attempts) delete acceptanceLog[label];
+  else acceptanceLog[label] = nextRecord;
+  saveAcceptanceLog();
+}
+
+function exportAcceptanceMatrix() {
+  const lines = lastProbeVariants.map((variant, index) => {
+    const record = getVariantRecord(variant.label);
+    return {
+      index: index + 1,
+      variant: variant.label,
+      verdict: record.verdict || '',
+      attempts: record.attempts || 0,
+      updatedAt: record.updatedAt || '',
+      notes: record.notes || '',
+      metadata: variant.metadata,
+    };
+  });
+  return JSON.stringify({
+    exportedAt: new Date().toISOString(),
+    title: lastCapturedData?.meta?.title || '',
+    url: lastCapturedData?.meta?.url || '',
+    variants: lines,
+  }, null, 2);
+}
+
+async function copySingleVariant(label) {
+  if (!lastCapturedData) throw new Error('No captured data available');
+  await writePayloadToClipboard(lastCapturedData, 'figma-html-rich', { singleVariant: label });
+}
+
+async function copyNextVariant() {
+  if (!lastProbeVariants.length) throw new Error('No probe variants available yet');
+  const variant = lastProbeVariants[nextVariantIndex % lastProbeVariants.length];
+  nextVariantIndex = (nextVariantIndex + 1) % lastProbeVariants.length;
+  await copySingleVariant(variant.label);
+  statusEl.textContent = `Copied next variant ${variant.label}. Paste into Figma and mark result.`;
+}
+
 function renderVariantMatrix() {
   if (!lastCapturedData || !lastProbeVariants.length) {
     variantMatrixEl.hidden = true;
@@ -261,35 +331,45 @@ function renderVariantMatrix() {
 
     const label = document.createElement('div');
     label.className = 'matrix-label';
-    const verdict = acceptanceLog[variant.label];
-    label.textContent = verdict ? `${variant.label} (${verdict})` : variant.label;
+    const record = getVariantRecord(variant.label);
+    const verdict = record.verdict;
+    const attemptText = record.attempts ? `, tries:${record.attempts}` : '';
+    label.textContent = verdict ? `${variant.label} (${verdict}${attemptText})` : variant.label;
 
     const copyBtn = document.createElement('button');
     copyBtn.className = 'secondary mini';
     copyBtn.textContent = 'Copy';
     copyBtn.addEventListener('click', async () => {
       try {
-        await writePayloadToClipboard(lastCapturedData, 'figma-html-rich', { singleVariant: variant.label });
+        await copySingleVariant(variant.label);
         statusEl.textContent = `Copied variant ${variant.label}. Paste into Figma and mark result.`;
       } catch (error) {
         statusEl.textContent = `Variant copy failed: ${error.message}`;
       }
     });
 
-    const markBtn = document.createElement('button');
-    markBtn.className = 'secondary mini';
-    markBtn.textContent = verdict === 'accepted' ? 'Accepted' : verdict === 'ignored' ? 'Ignored' : 'Mark';
-    markBtn.addEventListener('click', () => {
-      const next = verdict === 'accepted' ? 'ignored' : verdict === 'ignored' ? null : 'accepted';
-      if (next) acceptanceLog[variant.label] = next;
-      else delete acceptanceLog[variant.label];
+    const acceptBtn = document.createElement('button');
+    acceptBtn.className = `mini ${verdict === 'accepted' ? 'primary' : 'secondary'}`;
+    acceptBtn.textContent = 'Accept';
+    acceptBtn.addEventListener('click', () => {
+      setVariantVerdict(variant.label, verdict === 'accepted' ? null : 'accepted');
       renderVariantMatrix();
-      statusEl.textContent = `Updated test matrix: ${variant.label} -> ${next || 'unset'}`;
+      statusEl.textContent = `Updated test matrix: ${variant.label} -> ${verdict === 'accepted' ? 'unset' : 'accepted'}`;
+    });
+
+    const ignoreBtn = document.createElement('button');
+    ignoreBtn.className = `mini ${verdict === 'ignored' ? 'primary' : 'secondary'}`;
+    ignoreBtn.textContent = 'Ignore';
+    ignoreBtn.addEventListener('click', () => {
+      setVariantVerdict(variant.label, verdict === 'ignored' ? null : 'ignored');
+      renderVariantMatrix();
+      statusEl.textContent = `Updated test matrix: ${variant.label} -> ${verdict === 'ignored' ? 'unset' : 'ignored'}`;
     });
 
     row.appendChild(label);
     row.appendChild(copyBtn);
-    row.appendChild(markBtn);
+    row.appendChild(acceptBtn);
+    row.appendChild(ignoreBtn);
     variantRowsEl.appendChild(row);
   });
 }
@@ -392,3 +472,19 @@ async function runCapture(selector) {
 
 document.getElementById('captureBtn').addEventListener('click', () => runCapture(null));
 document.getElementById('captureAppBtn').addEventListener('click', () => runCapture('#app'));
+nextVariantBtn.addEventListener('click', async () => {
+  try {
+    await copyNextVariant();
+  } catch (error) {
+    statusEl.textContent = `Copy next failed: ${error.message}`;
+  }
+});
+exportMatrixBtn.addEventListener('click', async () => {
+  try {
+    const exported = exportAcceptanceMatrix();
+    await navigator.clipboard.writeText(exported);
+    statusEl.textContent = 'Acceptance matrix JSON copied to clipboard.';
+  } catch (error) {
+    statusEl.textContent = `Export failed: ${error.message}`;
+  }
+});
