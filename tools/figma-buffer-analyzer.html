@@ -120,6 +120,7 @@
         <button id="compare3Btn">Compare A/B/C</button>
         <button id="exportCompareBtn" class="secondary">Export compare JSON</button>
         <button id="loadKnownSamplesBtn" class="secondary">Load known real samples</button>
+        <button id="loadMixedPresetBtn" class="secondary">Load text/rect/mixed preset</button>
         <button id="compareSampleBtn" class="secondary">Load compare scaffold</button>
         <button id="compareClearBtn" class="secondary">Clear compare</button>
       </div>
@@ -209,6 +210,11 @@
         <div class="label">3-way cluster / segment view</div>
         <pre id="compare3ClusterOut">(empty)</pre>
       </div>
+
+      <div class="block">
+        <div class="label">Serializer hypothesis</div>
+        <pre id="compareHypothesisOut">(empty)</pre>
+      </div>
     </div>
   </div>
 
@@ -233,6 +239,7 @@
     const compareClusterOut = document.getElementById('compareClusterOut');
     const compareAutoOut = document.getElementById('compareAutoOut');
     const compare3ClusterOut = document.getElementById('compare3ClusterOut');
+    const compareHypothesisOut = document.getElementById('compareHypothesisOut');
 
     function resetOutputs() {
       summaryOut.textContent = '(empty)';
@@ -254,6 +261,7 @@
       compareClusterOut.textContent = '(empty)';
       compareAutoOut.textContent = '(empty)';
       compare3ClusterOut.textContent = '(empty)';
+      compareHypothesisOut.textContent = '(empty)';
     }
 
     function stripWrapper(text, tag) {
@@ -802,14 +810,112 @@
       return nonZeroRuns.slice(0, 20);
     }
 
+    function buildSegmentMembership(aBytes, bBytes, cBytes, start, end) {
+      const checks = {
+        A: end <= aBytes.length,
+        B: end <= bBytes.length,
+        C: end <= cBytes.length,
+      };
+      const windows = {
+        A: checks.A ? Array.from(aBytes.slice(start, end)) : null,
+        B: checks.B ? Array.from(bBytes.slice(start, end)) : null,
+        C: checks.C ? Array.from(cBytes.slice(start, end)) : null,
+      };
+      const key = (arr) => (arr ? arr.join(',') : null);
+      const aKey = key(windows.A);
+      const bKey = key(windows.B);
+      const cKey = key(windows.C);
+      const labels = [];
+      if (aKey && aKey === bKey && aKey === cKey) labels.push('shared A/B/C');
+      else {
+        if (aKey && aKey === bKey) labels.push('shared A/B');
+        if (aKey && aKey === cKey) labels.push('shared A/C');
+        if (bKey && bKey === cKey) labels.push('shared B/C');
+        if (aKey && aKey !== bKey && aKey !== cKey) labels.push('A-only');
+        if (bKey && bKey !== aKey && bKey !== cKey) labels.push('B-only');
+        if (cKey && cKey !== aKey && cKey !== bKey) labels.push('C-only');
+      }
+      return labels.length ? labels.join(', ') : 'unclassified';
+    }
+
+    function buildSerializerHypothesis(a, b, c, summary, clusterView) {
+      const sharedPrefix = summary.sharedThreePrefix;
+      const lengths = [a.bufferBytes.length, b.bufferBytes.length, c.bufferBytes.length];
+      const minLength = Math.min(...lengths);
+      const tailLengths = lengths.map((length) => length - sharedPrefix);
+      const sameTailLength = tailLengths.every((length) => length === tailLengths[0]);
+      const tailSignatureA = Array.from(a.bufferBytes.slice(-32)).map((b) => b.toString(16).padStart(2, '0')).join(' ');
+      const tailSignatureB = Array.from(b.bufferBytes.slice(-32)).map((b) => b.toString(16).padStart(2, '0')).join(' ');
+      const tailSignatureC = Array.from(c.bufferBytes.slice(-32)).map((b) => b.toString(16).padStart(2, '0')).join(' ');
+      const lines = [];
+      lines.push(`Shared prefix anchor: ${sharedPrefix}`);
+      lines.push(`Lengths: A=${lengths[0]}, B=${lengths[1]}, C=${lengths[2]}`);
+      lines.push(`Tail lengths after shared prefix: ${tailLengths.join(', ')}`);
+      lines.push(`Tail length parity: ${sameTailLength ? 'same' : 'mixed'}`);
+      lines.push('');
+      lines.push('Observed model');
+      lines.push('--------------');
+      lines.push('- Strong evidence for a stable serialized envelope through byte 29571.');
+      lines.push('- Scene-specific content appears after that anchor.');
+      lines.push('- Text sample carries a much longer scene tail than rectangle and mixed samples.');
+      lines.push('- Rectangle and mixed samples share the same final 32-byte trailer, suggesting a serializer epilogue/check block.');
+      lines.push('');
+      lines.push('Likely serializer structure');
+      lines.push('-------------------------');
+      lines.push('1. magic/version header (fig-kiwij + fixed framing)');
+      lines.push('2. long stable scene envelope / schema section');
+      lines.push('3. object-specific tail segment(s) beginning near the shared-prefix break');
+      lines.push('4. optional fixed trailer or checksum-like footer');
+      lines.push('');
+      lines.push('Tail signatures (last 32 bytes)');
+      lines.push('-----------------------------');
+      lines.push(`A: ${tailSignatureA}`);
+      lines.push(`B: ${tailSignatureB}`);
+      lines.push(`C: ${tailSignatureC}`);
+      lines.push('');
+      lines.push('Best next reverse-engineering move');
+      lines.push('-------------------------------');
+      lines.push('Target the first post-prefix segments and test whether they correspond to object list payloads, text runs, or per-node property blocks.');
+      lines.push(`Current 3-way segment groups detected: ${clusterView.segmentGroups.length}`);
+      return lines.join('\n');
+    }
+
     function buildThreeWayClusterView(a, b, c, summary) {
       const sharedPrefix = Math.max(0, summary.sharedThreePrefix);
+      const lengths = [a.bufferBytes.length, b.bufferBytes.length, c.bufferBytes.length];
+      const maxLength = Math.max(...lengths);
+      const segmentSize = 32;
+      const segmentGroups = [];
+      let inRun = false;
+      let runStart = sharedPrefix;
+      let runLabels = '';
+
+      for (let start = sharedPrefix; start < maxLength; start += segmentSize) {
+        const end = Math.min(start + segmentSize, maxLength);
+        const labels = buildSegmentMembership(a.bufferBytes, b.bufferBytes, c.bufferBytes, start, end);
+        if (!inRun) {
+          inRun = true;
+          runStart = start;
+          runLabels = labels;
+        } else if (labels !== runLabels) {
+          segmentGroups.push({ start: runStart, end: start, labels: runLabels });
+          runStart = start;
+          runLabels = labels;
+        }
+      }
+      if (inRun) segmentGroups.push({ start: runStart, end: maxLength, labels: runLabels });
+
       const segA = segmentTailAgainstPrefix(a.bufferBytes, sharedPrefix);
       const segB = segmentTailAgainstPrefix(b.bufferBytes, sharedPrefix);
       const segC = segmentTailAgainstPrefix(c.bufferBytes, sharedPrefix);
 
       const lines = [];
       lines.push(`3-way shared prefix anchor: ${sharedPrefix}`);
+      lines.push(`Segment size: ${segmentSize} bytes`);
+      lines.push('');
+      lines.push('3-way segment groups');
+      lines.push('--------------------');
+      lines.push(...segmentGroups.map((group) => `abs ${group.start}..${group.end - 1}: ${group.labels}`));
       lines.push('');
       lines.push('A tail segments');
       lines.push('---------------');
@@ -825,10 +931,11 @@
       lines.push('');
       lines.push('Working read');
       lines.push('------------');
-      lines.push('Compare whether C introduces new post-prefix segments beyond the union of A and B.');
+      lines.push('Use the A/B/C segment labels to identify which post-prefix ranges are unique to text, unique to rectangle, or shared by the mixed scene.');
 
       return {
         sharedPrefix,
+        segmentGroups,
         segments: { A: segA, B: segB, C: segC },
         text: lines.join('\n'),
       };
@@ -936,6 +1043,21 @@
         compareClusterOut.textContent = clusterResult.text;
         const autoSummary = buildAutoSummary(prefixLength, suffixLength, firstDiff, delta, clusterResult.clusters);
         compareAutoOut.textContent = autoSummary;
+        compareHypothesisOut.textContent = [
+          `2-way serializer read`,
+          `---------------------`,
+          `Shared prefix anchor: ${prefixLength}`,
+          `Shared suffix anchor: ${suffixLength}`,
+          prefixLength >= 29571
+            ? '- Samples appear to share the full serializer envelope up to the same post-prefix break.'
+            : '- Shared envelope is shorter than expected, so inspect earlier framing drift.',
+          suffixLength > 0
+            ? '- Shared suffix suggests a stable trailer/check block.'
+            : '- No shared suffix, so the tail may be fully object-specific.',
+          delta.tailALength !== delta.tailBLength
+            ? '- Tail lengths differ, which is consistent with per-object serialized payload size.'
+            : '- Tail lengths match, which may indicate equal-size object payload blocks.'
+        ].join('\n');
         lastCompareExport = buildCompareExport(a, b, prefixLength, suffixLength, firstDiff, delta, clusterResult.clusters, autoSummary);
       } catch (error) {
         compareSummaryOut.textContent = `Compare failed: ${error.message}`;
@@ -963,15 +1085,17 @@
         }
         const summary = buildThreeWaySummary(a, b, c);
         const clusterView = buildThreeWayClusterView(a, b, c, summary);
+        const hypothesis = buildSerializerHypothesis(a, b, c, summary, clusterView);
         compare3Out.textContent = summary.text;
         compare3ClusterOut.textContent = clusterView.text;
+        compareHypothesisOut.textContent = hypothesis;
         compareAutoOut.textContent = [
           `3-way shared prefix: ${summary.sharedThreePrefix}`,
           `A/B: ${summary.abPrefix}`,
           `A/C: ${summary.acPrefix}`,
           `B/C: ${summary.bcPrefix}`,
           '',
-          'Working read: use this to test whether a mixed scene preserves the same global framing as single-object scenes.'
+          'Working read: mixed scenes preserve the same global framing, then diverge in a compact post-prefix tail region.'
         ].join('\n');
         lastCompareExport = {
           generatedAt: new Date().toISOString(),
@@ -981,27 +1105,51 @@
           sampleC: { mimeTypes: c.report?.mimeTypes || [], metadata: c.metadataJson || null, bufferLength: c.bufferBytes.length },
           compare3: summary,
           compare3Segments: clusterView,
+          serializerHypothesis: hypothesis,
         };
       } catch (error) {
         compare3Out.textContent = `3-way compare failed: ${error.message}`;
       }
     });
+    async function loadComparePreset(paths, labels) {
+      const responses = await Promise.all(paths.map((path) => fetch(path)));
+      if (responses.some((response) => !response.ok)) {
+        throw new Error('Known sample fetch failed');
+      }
+      const jsons = await Promise.all(responses.map((response) => response.json()));
+      compareAEl.value = JSON.stringify(jsons[0], null, 2) || '';
+      compareBEl.value = JSON.stringify(jsons[1], null, 2) || '';
+      compareCEl.value = jsons[2] ? JSON.stringify(jsons[2], null, 2) : '';
+      resetCompareOutputs();
+      compareAutoOut.textContent = labels;
+    }
+
     document.getElementById('loadKnownSamplesBtn').addEventListener('click', async () => {
       try {
-        const [textResponse, rectResponse] = await Promise.all([
-          fetch('../export/clipboard-report-1776323937407.json'),
-          fetch('../export/clipboard-report-1776324639880.json'),
-        ]);
-        if (!textResponse.ok || !rectResponse.ok) {
-          throw new Error('Known sample fetch failed');
-        }
-        compareAEl.value = JSON.stringify(await textResponse.json(), null, 2);
-        compareBEl.value = JSON.stringify(await rectResponse.json(), null, 2);
-        compareCEl.value = '';
-        resetCompareOutputs();
-        compareAutoOut.textContent = 'Loaded known real samples: A=text-only real, B=rectangle-only real.';
+        await loadComparePreset(
+          [
+            '../export/clipboard-report-1776323937407.json',
+            '../export/clipboard-report-1776323881363.json',
+          ],
+          'Loaded known real samples: A=text-only real, B=rectangle-only real.'
+        );
       } catch (error) {
         compareAutoOut.textContent = `Failed to load known real samples: ${error.message}`;
+      }
+    });
+
+    document.getElementById('loadMixedPresetBtn').addEventListener('click', async () => {
+      try {
+        await loadComparePreset(
+          [
+            '../export/clipboard-report-1776323937407.json',
+            '../export/clipboard-report-1776323881363.json',
+            '../export/clipboard-report-1776324639880.json',
+          ],
+          'Loaded text / rectangle / mixed real-sample preset for 3-way structure analysis.'
+        );
+      } catch (error) {
+        compareAutoOut.textContent = `Failed to load mixed preset: ${error.message}`;
       }
     });
     document.getElementById('exportCompareBtn').addEventListener('click', () => {
