@@ -113,8 +113,11 @@
       <textarea id="compareA" placeholder="Paste sample A here"></textarea>
       <div class="label" style="margin-top:12px;">Compare input B</div>
       <textarea id="compareB" placeholder="Paste sample B here"></textarea>
+      <div class="label" style="margin-top:12px;">Compare input C (optional)</div>
+      <textarea id="compareC" placeholder="Paste sample C here for 3-way compare"></textarea>
       <div class="row">
         <button id="compareBtn">Compare A/B</button>
+        <button id="compare3Btn">Compare A/B/C</button>
         <button id="exportCompareBtn" class="secondary">Export compare JSON</button>
         <button id="compareSampleBtn" class="secondary">Load compare scaffold</button>
         <button id="compareClearBtn" class="secondary">Clear compare</button>
@@ -185,6 +188,11 @@
         <div class="label">Tail delta view</div>
         <pre id="compareDeltaOut">(empty)</pre>
       </div>
+
+      <div class="block">
+        <div class="label">3-way summary</div>
+        <pre id="compare3Out">(empty)</pre>
+      </div>
     </div>
   </div>
 
@@ -192,6 +200,7 @@
     const inputEl = document.getElementById('input');
     const compareAEl = document.getElementById('compareA');
     const compareBEl = document.getElementById('compareB');
+    const compareCEl = document.getElementById('compareC');
     const summaryOut = document.getElementById('summaryOut');
     const metadataOut = document.getElementById('metadataOut');
     const bufferOut = document.getElementById('bufferOut');
@@ -204,6 +213,7 @@
     const compareTailOut = document.getElementById('compareTailOut');
     const compareFieldOut = document.getElementById('compareFieldOut');
     const compareDeltaOut = document.getElementById('compareDeltaOut');
+    const compare3Out = document.getElementById('compare3Out');
 
     function resetOutputs() {
       summaryOut.textContent = '(empty)';
@@ -221,6 +231,7 @@
       compareTailOut.textContent = '(empty)';
       compareFieldOut.textContent = '(empty)';
       compareDeltaOut.textContent = '(empty)';
+      compare3Out.textContent = '(empty)';
     }
 
     function stripWrapper(text, tag) {
@@ -634,6 +645,44 @@
       };
     }
 
+    function buildThreeWaySummary(a, b, c) {
+      const abPrefix = findCommonPrefixLength(a.bufferBytes, b.bufferBytes);
+      const acPrefix = findCommonPrefixLength(a.bufferBytes, c.bufferBytes);
+      const bcPrefix = findCommonPrefixLength(b.bufferBytes, c.bufferBytes);
+      const sharedThreePrefix = (() => {
+        const limit = Math.min(a.bufferBytes.length, b.bufferBytes.length, c.bufferBytes.length);
+        let i = 0;
+        while (i < limit && a.bufferBytes[i] === b.bufferBytes[i] && a.bufferBytes[i] === c.bufferBytes[i]) i += 1;
+        return i;
+      })();
+
+      const lines = [];
+      lines.push(`A length: ${a.bufferBytes.length}`);
+      lines.push(`B length: ${b.bufferBytes.length}`);
+      lines.push(`C length: ${c.bufferBytes.length}`);
+      lines.push('');
+      lines.push(`A/B common prefix: ${abPrefix}`);
+      lines.push(`A/C common prefix: ${acPrefix}`);
+      lines.push(`B/C common prefix: ${bcPrefix}`);
+      lines.push(`A/B/C shared prefix: ${sharedThreePrefix}`);
+      lines.push('');
+      lines.push('Interpretation');
+      lines.push('-------------');
+      if (sharedThreePrefix > 0) {
+        lines.push(`All three samples share the first ${sharedThreePrefix} bytes.`);
+      } else {
+        lines.push('No shared 3-way prefix detected.');
+      }
+      lines.push('Use this to test whether mixed scenes preserve the same envelope and where composition-specific blocks begin.');
+      return {
+        abPrefix,
+        acPrefix,
+        bcPrefix,
+        sharedThreePrefix,
+        text: lines.join('\n'),
+      };
+    }
+
     let lastCompareExport = null;
 
     function compareSamples() {
@@ -740,6 +789,37 @@
 
     document.getElementById('analyzeBtn').addEventListener('click', analyze);
     document.getElementById('compareBtn').addEventListener('click', compareSamples);
+    document.getElementById('compare3Btn').addEventListener('click', () => {
+      resetCompareOutputs();
+      const rawA = compareAEl.value.trim();
+      const rawB = compareBEl.value.trim();
+      const rawC = compareCEl.value.trim();
+      if (!rawA || !rawB || !rawC) {
+        compare3Out.textContent = 'A, B, and C are all required for 3-way compare.';
+        return;
+      }
+      try {
+        const a = decodeSample(rawA);
+        const b = decodeSample(rawB);
+        const c = decodeSample(rawC);
+        if (!a.bufferBytes || !b.bufferBytes || !c.bufferBytes) {
+          compare3Out.textContent = 'All three samples need decodable data-buffer content.';
+          return;
+        }
+        const summary = buildThreeWaySummary(a, b, c);
+        compare3Out.textContent = summary.text;
+        lastCompareExport = {
+          generatedAt: new Date().toISOString(),
+          mode: 'compare-3',
+          sampleA: { mimeTypes: a.report?.mimeTypes || [], metadata: a.metadataJson || null, bufferLength: a.bufferBytes.length },
+          sampleB: { mimeTypes: b.report?.mimeTypes || [], metadata: b.metadataJson || null, bufferLength: b.bufferBytes.length },
+          sampleC: { mimeTypes: c.report?.mimeTypes || [], metadata: c.metadataJson || null, bufferLength: c.bufferBytes.length },
+          compare3: summary,
+        };
+      } catch (error) {
+        compare3Out.textContent = `3-way compare failed: ${error.message}`;
+      }
+    });
     document.getElementById('exportCompareBtn').addEventListener('click', () => {
       if (!lastCompareExport) {
         compareSummaryOut.textContent = 'Run Compare A/B first before exporting compare JSON.';
@@ -764,6 +844,7 @@
     document.getElementById('compareClearBtn').addEventListener('click', () => {
       compareAEl.value = '';
       compareBEl.value = '';
+      compareCEl.value = '';
       lastCompareExport = null;
       resetCompareOutputs();
     });
@@ -795,6 +876,7 @@
       }, null, 2);
       compareAEl.value = scaffold;
       compareBEl.value = scaffold;
+      compareCEl.value = scaffold;
       resetCompareOutputs();
     });
   </script>
