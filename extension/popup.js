@@ -39,6 +39,9 @@ function createProbeMetadata(data, extra = {}) {
     title: data?.meta?.title || 'Untitled',
     url: data?.meta?.url || '',
     capturedAt: data?.meta?.capturedAt || new Date().toISOString(),
+    nodeCount: Array.isArray(data?.nodes) ? data.nodes.length : 0,
+    textNodeCount: Array.isArray(data?.nodes) ? data.nodes.filter((node) => node?.type === 'text').length : 0,
+    imageNodeCount: Array.isArray(data?.nodes) ? data.nodes.filter((node) => node?.type === 'image').length : 0,
     ...extra,
   };
 }
@@ -67,21 +70,66 @@ function serializeFigmaStyleHtmlProbe(data) {
   return `<html><body><!--StartFragment--><meta charset="utf-8"><span data-metadata="${metadataWrapper}"></span><span data-buffer="${bufferWrapper}"></span>${fallback}<!--EndFragment--></body></html>`;
 }
 
+function buildSyntheticSceneBuffer(data, options = {}) {
+  const encoder = new TextEncoder();
+  const json = JSON.stringify({
+    meta: data?.meta || {},
+    root: data?.root || null,
+    nodes: Array.isArray(data?.nodes) ? data.nodes.slice(0, 128) : [],
+  });
+  const jsonBytes = encoder.encode(json);
+  const prefix = encoder.encode('fig-kiwij\u0000\u0000\u0000ss\u0000\u0000');
+  const nodeCount = Array.isArray(data?.nodes) ? data.nodes.length : 0;
+  const textCount = Array.isArray(data?.nodes) ? data.nodes.filter((node) => node?.type === 'text').length : 0;
+  const imageCount = Array.isArray(data?.nodes) ? data.nodes.filter((node) => node?.type === 'image').length : 0;
+  const header = new Uint8Array([
+    nodeCount & 0xff, (nodeCount >> 8) & 0xff,
+    textCount & 0xff, (textCount >> 8) & 0xff,
+    imageCount & 0xff, (imageCount >> 8) & 0xff,
+    options.variantId || 0,
+    jsonBytes.length & 0xff,
+    (jsonBytes.length >> 8) & 0xff,
+    (jsonBytes.length >> 16) & 0xff,
+    (jsonBytes.length >> 24) & 0xff,
+  ]);
+  const trailer = encoder.encode(options.trailer || 'html2fig-probe');
+  const out = new Uint8Array(prefix.length + header.length + jsonBytes.length + trailer.length);
+  out.set(prefix, 0);
+  out.set(header, prefix.length);
+  out.set(jsonBytes, prefix.length + header.length);
+  out.set(trailer, prefix.length + header.length + jsonBytes.length);
+  return btoa(String.fromCharCode(...out));
+}
+
 function serializeFigmaStyleRichProbe(data) {
   const json = JSON.stringify(data);
-  const encodedMeta = toBase64Utf8(createProbeMetadata(data, {
-    version: 1,
-    type: 'figma-rich-probe',
-  }));
-  const encodedBuffer = toBase64Utf8(json);
-  const metadataWrapper = escapeHtml(wrapFigmaComment('figmeta', encodedMeta));
-  const bufferWrapper = escapeHtml(wrapFigmaComment('figma', encodedBuffer));
+  const variants = [
+    {
+      label: 'base64-json',
+      metadata: createProbeMetadata(data, { version: 1, type: 'figma-rich-probe', variant: 'base64-json' }),
+      buffer: toBase64Utf8(json),
+    },
+    {
+      label: 'synthetic-scene-v1',
+      metadata: createProbeMetadata(data, { version: 1, type: 'figma-rich-probe', variant: 'synthetic-scene-v1' }),
+      buffer: buildSyntheticSceneBuffer(data, { variantId: 1, trailer: 'scene-v1' }),
+    },
+    {
+      label: 'synthetic-scene-v2',
+      metadata: createProbeMetadata(data, { version: 2, type: 'figma-rich-probe', variant: 'synthetic-scene-v2' }),
+      buffer: buildSyntheticSceneBuffer(data, { variantId: 2, trailer: 'scene-v2:tail' }),
+    },
+  ];
   const fallback = buildFallbackTextRuns(data);
+  const spans = variants.map((variant, index) => {
+    const metadataWrapper = escapeHtml(wrapFigmaComment('figmeta', toBase64Utf8(variant.metadata)));
+    const bufferWrapper = escapeHtml(wrapFigmaComment('figma', variant.buffer));
+    return `<span data-html2fig-variant="${variant.label}" data-metadata="${metadataWrapper}" data-buffer="${bufferWrapper}" data-figma-metadata="${metadataWrapper}" data-figma-buffer="${bufferWrapper}" style="display:none"></span>`;
+  }).join('');
   return `
     <html><body><!--StartFragment--><meta charset="utf-8"><meta name="html2fig-format" content="figma-rich-probe" />
-      <span data-metadata="${metadataWrapper}"></span>
-      <span data-buffer="${bufferWrapper}"></span>
-      <span data-figma-metadata="${metadataWrapper}" data-figma-buffer="${bufferWrapper}"></span>
+      ${spans}
+      <div data-html2fig-probe-summary="variants:${variants.map((variant) => variant.label).join(',')}"></div>
       ${fallback}
     <!--EndFragment--></body></html>
   `;
