@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "html2fig capture",
+  "version": "0.1.0",
+  "description": "Capture the current page into html2fig JSON and copy it to the clipboard for Figma import.",
+  "permissions": ["activeTab", "scripting", "clipboardWrite"],
+  "host_permissions": ["<all_urls>"],
+  "action": {
+    "default_title": "html2fig capture",
+    "default_popup": "popup.html"
+  }
+}
