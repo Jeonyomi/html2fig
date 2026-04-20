@@ -10,7 +10,7 @@ bootLog('script start');
 
 const nativeClipboardModule = await import('./native-clipboard.js');
 bootLog('native-clipboard imported');
-const irValidatorModule = await import('../capture/ir-validator.js');
+const irValidatorModule = await import('./ir-validator.js');
 bootLog('ir-validator imported');
 const probeAcceptanceModule = await import('./probe-acceptance.js');
 bootLog('probe-acceptance imported');
