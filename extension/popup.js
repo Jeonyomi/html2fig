@@ -159,7 +159,7 @@ async function injectCaptureScript(tabId) {
   debugLog('injectCaptureScript:start', String(tabId));
   await chrome.scripting.executeScript({
     target: { tabId },
-    files: ['../capture/capture-style.js', '../capture/capture-visibility.js', '../capture/capture-node-builders.js', '../capture/capture-flow.js', 'inject-capture.js'],
+    files: ['capture/capture-style.js', 'capture/capture-visibility.js', 'capture/capture-node-builders.js', 'capture/capture-flow.js', 'inject-capture.js'],
   });
   debugLog('injectCaptureScript:done', String(tabId));
 }
