@@ -22,6 +22,24 @@ const bestProbeBtn = document.getElementById('bestProbeBtn');
 const exportMatrixBtn = document.getElementById('exportMatrixBtn');
 const variantNotesEl = document.getElementById('variantNotes');
 
+function debugLog(step, detail = '') {
+  const message = detail ? `[popup] ${step}: ${detail}` : `[popup] ${step}`;
+  console.log(message);
+  if (statusEl) statusEl.textContent = message;
+}
+
+window.addEventListener('error', (event) => {
+  const message = event?.error?.message || event?.message || 'unknown popup error';
+  console.error('[html2fig popup] window error', event?.error || event);
+  if (statusEl) statusEl.textContent = `[popup] error: ${message}`;
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  const reason = event?.reason?.message || String(event?.reason || 'unknown rejection');
+  console.error('[html2fig popup] unhandled rejection', event?.reason);
+  if (statusEl) statusEl.textContent = `[popup] unhandled rejection: ${reason}`;
+});
+
 let lastCapturedData = null;
 let lastProbeVariants = [];
 let acceptanceLog = loadAcceptanceLog();
@@ -45,10 +63,12 @@ function serializeSvgPayload(data) {
 
 
 async function copySingleVariant(label) {
+  debugLog('copySingleVariant:start', label);
   if (!lastCapturedData) throw new Error('No captured data available');
   assertMinimalIR(lastCapturedData);
   await writePayloadToClipboard(lastCapturedData, 'figma-html-rich', { singleVariant: label });
   if (variantNotesEl) variantNotesEl.value = getVariantRecord(acceptanceLog, label).notes || '';
+  debugLog('copySingleVariant:done', label);
 }
 
 function getPreferredProbeLabel() {
@@ -65,6 +85,7 @@ async function copyPreferredProbe() {
 
 
 async function writePayloadToClipboard(data, mode, options = {}) {
+  debugLog('writePayloadToClipboard:start', mode);
   const json = JSON.stringify(data, null, 2);
 
   if (mode === 'json') {
@@ -105,22 +126,28 @@ async function writePayloadToClipboard(data, mode, options = {}) {
 
   const item = new ClipboardItem(clipboardMap);
   await navigator.clipboard.write([item]);
+  debugLog('writePayloadToClipboard:done', mode);
 }
 
 async function getCurrentTab() {
+  debugLog('getCurrentTab:start');
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  debugLog('getCurrentTab:done', String(tab?.id || 'no-tab'));
   if (!tab?.id) throw new Error('No active tab found');
   return tab;
 }
 
 async function injectCaptureScript(tabId) {
+  debugLog('injectCaptureScript:start', String(tabId));
   await chrome.scripting.executeScript({
     target: { tabId },
     files: ['../capture/capture-style.js', '../capture/capture-visibility.js', '../capture/capture-node-builders.js', '../capture/capture-flow.js', 'inject-capture.js'],
   });
+  debugLog('injectCaptureScript:done', String(tabId));
 }
 
 async function captureData(tabId, selector) {
+  debugLog('captureData:start', selector || 'body');
   const executionResults = await chrome.scripting.executeScript({
     target: { tabId },
     func: (captureSelector) => {
@@ -141,16 +168,15 @@ async function captureData(tabId, selector) {
   const result = executionResults?.[0]?.result;
   if (!result) throw new Error('No result returned from capture execution');
   if (!result.ok) throw new Error(result.error || 'Capture execution failed');
+  debugLog('captureData:done', `${result.data?.nodes?.length || 0} nodes`);
   return result.data;
 }
 
 async function runCapture() {
   try {
-    statusEl.textContent = 'Preparing Figma test payload…';
+    debugLog('runCapture:start');
     const tab = await getCurrentTab();
-    statusEl.textContent = 'Injecting capture helpers…';
     await injectCaptureScript(tab.id);
-    statusEl.textContent = 'Capturing current page…';
     const data = await captureData(tab.id, null);
     assertMinimalIR(data);
     lastCapturedData = data;
@@ -161,6 +187,7 @@ async function runCapture() {
       const preferredLabel = getPreferredProbeLabel();
       variantNotesEl.value = preferredLabel ? getVariantRecord(acceptanceLog, preferredLabel).notes || '' : '';
     }
+    debugLog('runCapture:done', data?.meta?.title || 'Untitled Page');
     statusEl.textContent = `Prepared Figma test payload for:\n${data?.meta?.title || 'Untitled Page'}\nNow click Copy Figma Test Payload, then paste into Figma.`;
   } catch (error) {
     console.error('[html2fig popup] prepare failed', error);
@@ -168,9 +195,15 @@ async function runCapture() {
   }
 }
 
-document.getElementById('captureBtn').addEventListener('click', () => runCapture());
+debugLog('popup script loaded');
+
+document.getElementById('captureBtn').addEventListener('click', () => {
+  debugLog('captureBtn:click');
+  runCapture();
+});
 bestProbeBtn.addEventListener('click', async () => {
   try {
+    debugLog('bestProbeBtn:click');
     if (!lastCapturedData) {
       statusEl.textContent = 'Capture a page first, then copy the Figma test payload.';
       return;
