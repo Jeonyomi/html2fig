@@ -1,5 +1,20 @@
 import { toBase64Utf8 } from './clipboard-carrier.js';
 
+const REAL_SCENE_BUFFER_TEMPLATES = {
+  primitiveMixed: {
+    prefixHex: '6669672d6b6977696a00000073730000b5bd09986c4955e01ff7e65255afded2fbc6beefd87437ab6b6e5595efe546deac7add8c63999599f52a79599969deac',
+    source: 'primitive-mixed',
+  },
+  html2design: {
+    prefixHex: '6669672d6b6977696a00000038650000b4bd7b9c2c575528bcf6aeeaee9933e795f70308ef376812de5ef55add5d3d53e774773555d53339b95edb9aee9a99ca',
+    source: 'html2design-scene',
+  },
+  figmaSlide: {
+    prefixHex: '6669672d6b6977696a000000bd740000b5bd099c6c4955e01df7e65255afded6fbc2be2f024277b3bae65655f95e6ee4cdaad7dde358666566bd4a5e56669a37',
+    source: 'figma-slide-scene',
+  },
+};
+
 export const REAL_BUFFER_SPLICE_TEMPLATES = {
   rectangle: {
     prefixHex: '6669672d6b6977696a00000073730000',
@@ -80,6 +95,21 @@ export function buildProbeVariants(data) {
       label: 'splice-mixed-tail',
       metadata: createProbeMetadata(data, { version: 3, type: 'figma-rich-probe', variant: 'splice-mixed-tail', spliceTemplate: 'mixed' }),
       buffer: buildSpliceProbeBuffer(data, 'mixed', { variantLabel: 'splice-mixed-tail' }),
+    },
+    {
+      label: 'scene-template-html2design',
+      metadata: createProbeMetadata(data, { version: 5, type: 'figma-rich-probe', variant: 'scene-template-html2design', sceneTemplate: 'html2design' }),
+      buffer: buildSceneTemplateProbeBuffer(data, 'html2design', { variantLabel: 'scene-template-html2design' }),
+    },
+    {
+      label: 'scene-template-figma-slide',
+      metadata: createProbeMetadata(data, { version: 5, type: 'figma-rich-probe', variant: 'scene-template-figma-slide', sceneTemplate: 'figmaSlide' }),
+      buffer: buildSceneTemplateProbeBuffer(data, 'figmaSlide', { variantLabel: 'scene-template-figma-slide' }),
+    },
+    {
+      label: 'scene-template-primitive-mixed',
+      metadata: createProbeMetadata(data, { version: 5, type: 'figma-rich-probe', variant: 'scene-template-primitive-mixed', sceneTemplate: 'primitiveMixed' }),
+      buffer: buildSceneTemplateProbeBuffer(data, 'primitiveMixed', { variantLabel: 'scene-template-primitive-mixed' }),
     },
   ];
   const derivedVariants = ['rectangle', 'text', 'mixed'].flatMap((templateKey) => DERIVED_FIELD_PATCHES.map((patch) => ({
@@ -199,5 +229,38 @@ function buildSpliceProbeBuffer(data, templateKey, options = {}) {
   out.set(spliceHead, prefix.length);
   out.set(middle, prefix.length + spliceHead.length);
   out.set(trailer, prefix.length + spliceHead.length + middle.length);
+  return base64FromBytes(out);
+}
+
+function buildSceneTemplateProbeBuffer(data, templateKey, options = {}) {
+  const template = REAL_SCENE_BUFFER_TEMPLATES[templateKey];
+  if (!template) return null;
+  const header = hexToBytes(template.prefixHex);
+  const encoder = new TextEncoder();
+  const body = encoder.encode(JSON.stringify({
+    variant: options.variantLabel || templateKey,
+    source: template.source,
+    title: data?.meta?.title || '',
+    url: data?.meta?.url || '',
+    version: data?.version || null,
+    root: data?.root || null,
+    nodes: Array.isArray(data?.nodes) ? data.nodes.slice(0, 48).map((node) => ({
+      id: node?.id,
+      type: node?.type,
+      name: node?.name,
+      text: node?.type === 'text' ? String(node.text || '').slice(0, 160) : undefined,
+      rect: node?.rect,
+      style: node?.style ? {
+        fontSize: node.style.fontSize,
+        fontWeight: node.style.fontWeight,
+        color: node.style.color,
+        backgroundColor: node.style.backgroundColor,
+        borderRadius: node.style.borderRadius,
+      } : undefined,
+    })) : [],
+  }));
+  const out = new Uint8Array(header.length + body.length);
+  out.set(header, 0);
+  out.set(body, header.length);
   return base64FromBytes(out);
 }

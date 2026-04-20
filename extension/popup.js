@@ -61,7 +61,15 @@ bootLog('event handlers attached');
 let lastCapturedData = null;
 let lastProbeVariants = [];
 let acceptanceLog = loadAcceptanceLog();
-const DEFAULT_PROBE_LABEL = 'splice-mixed-tail';
+const DEFAULT_PROBE_LABEL = 'scene-template-figma-slide';
+const PRIMARY_PROBE_LABELS = [
+  'scene-template-figma-slide',
+  'scene-template-html2design',
+  'scene-template-primitive-mixed',
+  'splice-mixed-tail',
+  'splice-rect-tail',
+  'splice-text-tail',
+];
 
 function escapeHtml(text) {
   return String(text).replace(/[&<>]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]));
@@ -89,14 +97,23 @@ async function copySingleVariant(label) {
   debugLog('copySingleVariant:done', label);
 }
 
+function getPrimaryProbeVariants() {
+  const preferred = PRIMARY_PROBE_LABELS
+    .map((label) => lastProbeVariants.find((variant) => variant.label === label))
+    .filter(Boolean);
+  return preferred.length ? preferred : lastProbeVariants.slice(0, 6);
+}
+
 function getPreferredProbeLabel() {
   if (lastProbeVariants.some((variant) => variant.label === DEFAULT_PROBE_LABEL)) return DEFAULT_PROBE_LABEL;
-  return lastProbeVariants[0]?.label || null;
+  return getPrimaryProbeVariants()[0]?.label || null;
 }
 
 async function copyPreferredProbe() {
   const label = getPreferredProbeLabel();
   if (!label) throw new Error('No probe variants available yet');
+  acceptanceLog = setVariantVerdict(acceptanceLog, label, 'copied');
+  saveAcceptanceLog(acceptanceLog);
   await copySingleVariant(label);
   statusEl.textContent = `Copied Figma test payload (${label}). Paste into Figma and record what happened.`;
 }
@@ -199,7 +216,7 @@ async function runCapture() {
     assertMinimalIR(data);
     lastCapturedData = data;
     lastProbeVariants = buildProbeVariants(data);
-    renderVariantMatrix({ lastCapturedData, lastProbeVariants, acceptanceLog, variantMatrixEl, variantRowsEl });
+    renderVariantMatrix({ lastCapturedData, lastProbeVariants: getPrimaryProbeVariants(), acceptanceLog, variantMatrixEl, variantRowsEl });
     if (bestProbeBtn) bestProbeBtn.style.display = 'block';
     if (variantNotesEl) {
       const preferredLabel = getPreferredProbeLabel();
@@ -227,7 +244,7 @@ bestProbeBtn.addEventListener('click', async () => {
       return;
     }
     await copyPreferredProbe();
-    renderVariantMatrix({ lastCapturedData, lastProbeVariants, acceptanceLog, variantMatrixEl, variantRowsEl });
+    renderVariantMatrix({ lastCapturedData, lastProbeVariants: getPrimaryProbeVariants(), acceptanceLog, variantMatrixEl, variantRowsEl });
   } catch (error) {
     statusEl.textContent = `Copy failed: ${error.message}`;
   }
@@ -248,5 +265,5 @@ variantNotesEl?.addEventListener('change', () => {
   acceptanceLog = setVariantNotes(acceptanceLog, label, variantNotesEl.value);
   acceptanceLog = setVariantVerdict(acceptanceLog, label, 'tested', { notes: variantNotesEl.value.trim(), attempts: Math.max(0, getVariantRecord(acceptanceLog, label).attempts - 1) });
   saveAcceptanceLog(acceptanceLog);
-  renderVariantMatrix({ lastCapturedData, lastProbeVariants, acceptanceLog, variantMatrixEl, variantRowsEl });
+  renderVariantMatrix({ lastCapturedData, lastProbeVariants: getPrimaryProbeVariants(), acceptanceLog, variantMatrixEl, variantRowsEl });
 });
