@@ -157,6 +157,7 @@ But current work is still prioritizing the native-paste serializer problem first
 
 ## Related docs
 
+- `IR_CONTRACT.md`
 - `ROADMAP.md`
 - `FIGMA_CLIPBOARD_RESEARCH.md`
 - `FIGMA_NATIVE_PASTE_PLAN.md`

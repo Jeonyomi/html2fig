@@ -153,18 +153,18 @@
     <button class="secondary" id="captureAppBtn">Copy #app</button>
   </div>
   <div class="matrix" id="variantMatrix" hidden>
-    <div class="matrix-title">Native paste probe variants</div>
+    <div class="matrix-title">Native paste probe</div>
     <div class="toolbar">
-      <button class="secondary mini" id="nextVariantBtn" type="button">Copy Next</button>
-      <button class="secondary mini" id="exportMatrixBtn" type="button">Export Matrix</button>
+      <button class="primary mini" id="bestProbeBtn" type="button">Copy Figma Test Payload</button>
+      <button class="secondary mini" id="exportMatrixBtn" type="button">Export Notes</button>
     </div>
     <div class="notes-box">
-      <label for="variantNotes">Experiment notes</label>
-      <textarea id="variantNotes" placeholder="Paste result, Figma reaction, error text, what actually happened..."></textarea>
+      <label for="variantNotes">Test result</label>
+      <textarea id="variantNotes" placeholder="What happened after paste in Figma?"></textarea>
     </div>
     <div id="variantRows"></div>
   </div>
   <div class="status" id="status"></div>
-  <script src="popup.js"></script>
+  <script type="module" src="popup.js"></script>
 </body>
 </html>

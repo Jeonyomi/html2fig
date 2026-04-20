@@ -109,9 +109,14 @@ Create the smallest synthetic clipboard payload that Figma accepts as editable p
 Translate html2fig capture output into the discovered Figma-compatible clipboard structure.
 
 ### Translation layers likely needed
-- html2fig JSON -> clipboard metadata model
+- html2fig IR -> clipboard metadata model
 - html2fig geometry -> Figma paste geometry
 - html2fig text/image/frame -> Figma-compatible encoded buffer elements
+
+### IR contract rule
+- native clipboard experiments should consume the documented html2fig IR contract
+- the minimum current contract is documented in `IR_CONTRACT.md`
+- breaking IR shape changes should be paired with an explicit version update
 
 ---
 
