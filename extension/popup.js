@@ -70,6 +70,7 @@ const PRIMARY_PROBE_LABELS = [
   'splice-rect-tail',
   'splice-text-tail',
 ];
+const PROBE_ROTATION_STORAGE_KEY = 'html2fig-preferred-probe-index-v1';
 
 function escapeHtml(text) {
   return String(text).replace(/[&<>]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]));
@@ -104,9 +105,38 @@ function getPrimaryProbeVariants() {
   return preferred.length ? preferred : lastProbeVariants.slice(0, 6);
 }
 
+function loadPreferredProbeIndex() {
+  try {
+    return Math.max(0, Number(localStorage.getItem(PROBE_ROTATION_STORAGE_KEY) || 0) || 0);
+  } catch {
+    return 0;
+  }
+}
+
+function savePreferredProbeIndex(index) {
+  try {
+    localStorage.setItem(PROBE_ROTATION_STORAGE_KEY, String(Math.max(0, index || 0)));
+  } catch {}
+}
+
 function getPreferredProbeLabel() {
-  if (lastProbeVariants.some((variant) => variant.label === DEFAULT_PROBE_LABEL)) return DEFAULT_PROBE_LABEL;
-  return getPrimaryProbeVariants()[0]?.label || null;
+  const primary = getPrimaryProbeVariants();
+  if (!primary.length) return null;
+  const defaultIndex = primary.findIndex((variant) => variant.label === DEFAULT_PROBE_LABEL);
+  const storedIndex = loadPreferredProbeIndex();
+  if (storedIndex > 0 && primary[storedIndex]) return primary[storedIndex].label;
+  if (defaultIndex >= 0) return primary[defaultIndex].label;
+  return primary[0]?.label || null;
+}
+
+function rotatePreferredProbe() {
+  const primary = getPrimaryProbeVariants();
+  if (!primary.length) return null;
+  const currentLabel = getPreferredProbeLabel();
+  const currentIndex = Math.max(0, primary.findIndex((variant) => variant.label === currentLabel));
+  const nextIndex = (currentIndex + 1) % primary.length;
+  savePreferredProbeIndex(nextIndex);
+  return primary[nextIndex]?.label || null;
 }
 
 async function copyPreferredProbe() {
@@ -223,7 +253,8 @@ async function runCapture() {
       variantNotesEl.value = preferredLabel ? getVariantRecord(acceptanceLog, preferredLabel).notes || '' : '';
     }
     debugLog('runCapture:done', data?.meta?.title || 'Untitled Page');
-    statusEl.textContent = `Prepared Figma test payload for:\n${data?.meta?.title || 'Untitled Page'}\nNow click Copy Figma Test Payload, then paste into Figma.`;
+    const preferredLabel = getPreferredProbeLabel();
+    statusEl.textContent = `Prepared Figma test payload for:\n${data?.meta?.title || 'Untitled Page'}\nCurrent probe: ${preferredLabel || 'n/a'}\nNow click Copy Figma Test Payload, then paste into Figma.`;
   } catch (error) {
     console.error('[html2fig popup] prepare failed', error);
     statusEl.textContent = `Prepare failed: ${error.message}`;
@@ -262,8 +293,12 @@ exportMatrixBtn.addEventListener('click', async () => {
 variantNotesEl?.addEventListener('change', () => {
   const label = getPreferredProbeLabel();
   if (!label) return;
-  acceptanceLog = setVariantNotes(acceptanceLog, label, variantNotesEl.value);
-  acceptanceLog = setVariantVerdict(acceptanceLog, label, 'tested', { notes: variantNotesEl.value.trim(), attempts: Math.max(0, getVariantRecord(acceptanceLog, label).attempts - 1) });
+  const note = variantNotesEl.value.trim();
+  acceptanceLog = setVariantNotes(acceptanceLog, label, note);
+  acceptanceLog = setVariantVerdict(acceptanceLog, label, 'tested', { notes: note, attempts: Math.max(0, getVariantRecord(acceptanceLog, label).attempts - 1) });
   saveAcceptanceLog(acceptanceLog);
+  if (/nothing happened|no reaction|무반응|아무 반응/i.test(note)) {
+    rotatePreferredProbe();
+  }
   renderVariantMatrix({ lastCapturedData, lastProbeVariants: getPrimaryProbeVariants(), acceptanceLog, variantMatrixEl, variantRowsEl });
 });

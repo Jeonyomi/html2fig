@@ -20,9 +20,9 @@ export function buildFallbackTextRuns(data, escapeHtml) {
   }).join('<br>');
 }
 
-export function buildFigmaClipboardCarrier(metadataWrapper, bufferWrapper, variantLabel = '') {
+export function buildFigmaClipboardCarrier(metadataWrapper, bufferWrapper, variantLabel = '', fallback = '') {
   const variantAttr = variantLabel ? ` data-html2fig-variant="${variantLabel}"` : '';
-  return `<span style="white-space:pre-wrap;display:block;"${variantAttr}><span data-metadata="${metadataWrapper}"></span><span data-buffer="${bufferWrapper}"></span></span>`;
+  return `<span style="white-space:pre-wrap;display:block;"${variantAttr}><span data-metadata="${metadataWrapper}"></span><span data-buffer="${bufferWrapper}"></span>${fallback}</span>`;
 }
 
 export function serializeFigmaStyleHtmlProbe(data, metadata, buffer, escapeHtml) {
@@ -36,20 +36,16 @@ export function serializeSingleProbeVariantHtml(data, variant, escapeHtml) {
   const fallback = buildFallbackTextRuns(data, escapeHtml);
   const metadataWrapper = escapeHtml(wrapFigmaComment('figmeta', toBase64Utf8(variant.metadata)));
   const bufferWrapper = escapeHtml(wrapFigmaComment('figma', variant.buffer));
-  const carrier = buildFigmaClipboardCarrier(metadataWrapper, bufferWrapper, variant.label);
-  return `
-    <html><body><!--StartFragment--><meta charset="utf-8">${carrier}${fallback}<!--EndFragment--></body></html>
-  `;
+  const carrier = buildFigmaClipboardCarrier(metadataWrapper, bufferWrapper, variant.label, fallback);
+  return `<html><body><!--StartFragment--><meta charset="utf-8">${carrier}<!--EndFragment--></body></html>`;
 }
 
 export function serializeFigmaStyleRichProbe(data, variants, escapeHtml) {
   const fallback = buildFallbackTextRuns(data, escapeHtml);
-  const carriers = variants.map((variant) => {
+  const carriers = variants.map((variant, index) => {
     const metadataWrapper = escapeHtml(wrapFigmaComment('figmeta', toBase64Utf8(variant.metadata)));
     const bufferWrapper = escapeHtml(wrapFigmaComment('figma', variant.buffer));
-    return buildFigmaClipboardCarrier(metadataWrapper, bufferWrapper, variant.label);
+    return buildFigmaClipboardCarrier(metadataWrapper, bufferWrapper, variant.label, index === 0 ? fallback : '');
   }).join('');
-  return `
-    <html><body><!--StartFragment--><meta charset="utf-8">${carriers}${fallback}<!--EndFragment--></body></html>
-  `;
+  return `<html><body><!--StartFragment--><meta charset="utf-8">${carriers}<!--EndFragment--></body></html>`;
 }
