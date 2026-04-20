@@ -78,7 +78,12 @@ function validateCommonStyle(style, path, errors) {
 }
 
 function validateTextStyle(style, path, errors) {
-  validateCommonStyle(style, path, errors);
+  if (!isObject(style)) {
+    errors.push(`${path} must be an object`);
+    return;
+  }
+  validateColor(style.color, `${path}.color`, errors);
+  if (typeof style.textAlign !== 'string') errors.push(`${path}.textAlign must be a string`);
   if (typeof style.fontFamily !== 'string') errors.push(`${path}.fontFamily must be a string`);
   if (!isFiniteNumber(style.fontSize)) errors.push(`${path}.fontSize must be a finite number`);
   if (typeof style.fontWeight !== 'string') errors.push(`${path}.fontWeight must be a string`);
