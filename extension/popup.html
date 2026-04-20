@@ -105,6 +105,34 @@
       display: flex;
       gap: 8px;
       margin-top: 10px;
+      flex-wrap: wrap;
+    }
+    .notes-box {
+      margin-top: 10px;
+      padding: 10px;
+      border: 1px solid #d9e2ec;
+      border-radius: 8px;
+      background: #f8fbff;
+    }
+    .notes-box label {
+      margin-bottom: 4px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: #486581;
+    }
+    .notes-box textarea {
+      width: 100%;
+      min-height: 58px;
+      resize: vertical;
+      border: 1px solid #cbd2d9;
+      border-radius: 8px;
+      padding: 8px 10px;
+      box-sizing: border-box;
+      font: inherit;
+      font-size: 12px;
+      background: #fff;
+      color: #102a43;
     }
   </style>
 </head>
@@ -129,6 +157,10 @@
     <div class="toolbar">
       <button class="secondary mini" id="nextVariantBtn" type="button">Copy Next</button>
       <button class="secondary mini" id="exportMatrixBtn" type="button">Export Matrix</button>
+    </div>
+    <div class="notes-box">
+      <label for="variantNotes">Experiment notes</label>
+      <textarea id="variantNotes" placeholder="Paste result, Figma reaction, error text, what actually happened..."></textarea>
     </div>
     <div id="variantRows"></div>
   </div>

@@ -4,6 +4,7 @@ const variantMatrixEl = document.getElementById('variantMatrix');
 const variantRowsEl = document.getElementById('variantRows');
 const nextVariantBtn = document.getElementById('nextVariantBtn');
 const exportMatrixBtn = document.getElementById('exportMatrixBtn');
+const variantNotesEl = document.getElementById('variantNotes');
 
 const ACCEPTANCE_STORAGE_KEY = 'html2fig-native-paste-matrix-v1';
 
@@ -306,15 +307,29 @@ function getVariantRecord(label) {
   return acceptanceLog[label] || { verdict: null, attempts: 0, notes: '' };
 }
 
-function setVariantVerdict(label, verdict) {
+function setVariantVerdict(label, verdict, extra = {}) {
   const record = getVariantRecord(label);
   const nextRecord = {
     ...record,
+    ...extra,
     verdict,
-    attempts: record.attempts + 1,
+    attempts: (record.attempts || 0) + 1,
     updatedAt: new Date().toISOString(),
   };
   if (!verdict && !nextRecord.notes && !nextRecord.attempts) delete acceptanceLog[label];
+  else acceptanceLog[label] = nextRecord;
+  saveAcceptanceLog();
+}
+
+function setVariantNotes(label, notes) {
+  const record = getVariantRecord(label);
+  const cleaned = String(notes || '').trim();
+  const nextRecord = {
+    ...record,
+    notes: cleaned,
+    updatedAt: new Date().toISOString(),
+  };
+  if (!nextRecord.verdict && !nextRecord.attempts && !cleaned) delete acceptanceLog[label];
   else acceptanceLog[label] = nextRecord;
   saveAcceptanceLog();
 }
@@ -343,6 +358,7 @@ function exportAcceptanceMatrix() {
 async function copySingleVariant(label) {
   if (!lastCapturedData) throw new Error('No captured data available');
   await writePayloadToClipboard(lastCapturedData, 'figma-html-rich', { singleVariant: label });
+  if (variantNotesEl) variantNotesEl.value = getVariantRecord(label).notes || '';
 }
 
 async function copyNextVariant() {
@@ -388,18 +404,20 @@ function renderVariantMatrix() {
     acceptBtn.className = `mini ${verdict === 'accepted' ? 'primary' : 'secondary'}`;
     acceptBtn.textContent = 'Accept';
     acceptBtn.addEventListener('click', () => {
-      setVariantVerdict(variant.label, verdict === 'accepted' ? null : 'accepted');
+      const nextVerdict = verdict === 'accepted' ? null : 'accepted';
+      setVariantVerdict(variant.label, nextVerdict, { notes: variantNotesEl ? variantNotesEl.value.trim() : record.notes || '' });
       renderVariantMatrix();
-      statusEl.textContent = `Updated test matrix: ${variant.label} -> ${verdict === 'accepted' ? 'unset' : 'accepted'}`;
+      statusEl.textContent = `Updated test matrix: ${variant.label} -> ${nextVerdict || 'unset'}`;
     });
 
     const ignoreBtn = document.createElement('button');
     ignoreBtn.className = `mini ${verdict === 'ignored' ? 'primary' : 'secondary'}`;
     ignoreBtn.textContent = 'Ignore';
     ignoreBtn.addEventListener('click', () => {
-      setVariantVerdict(variant.label, verdict === 'ignored' ? null : 'ignored');
+      const nextVerdict = verdict === 'ignored' ? null : 'ignored';
+      setVariantVerdict(variant.label, nextVerdict, { notes: variantNotesEl ? variantNotesEl.value.trim() : record.notes || '' });
       renderVariantMatrix();
-      statusEl.textContent = `Updated test matrix: ${variant.label} -> ${verdict === 'ignored' ? 'unset' : 'ignored'}`;
+      statusEl.textContent = `Updated test matrix: ${variant.label} -> ${nextVerdict || 'unset'}`;
     });
 
     row.appendChild(label);
@@ -523,4 +541,10 @@ exportMatrixBtn.addEventListener('click', async () => {
   } catch (error) {
     statusEl.textContent = `Export failed: ${error.message}`;
   }
+});
+
+variantNotesEl?.addEventListener('change', () => {
+  const label = lastProbeVariants[(nextVariantIndex - 1 + lastProbeVariants.length) % Math.max(1, lastProbeVariants.length)]?.label;
+  if (!label) return;
+  setVariantNotes(label, variantNotesEl.value);
 });
