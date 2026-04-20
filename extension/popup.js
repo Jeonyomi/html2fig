@@ -1,11 +1,28 @@
-import {
+const statusEl = document.getElementById('status');
+
+function bootLog(step, detail = '') {
+  const message = detail ? `[boot] ${step}: ${detail}` : `[boot] ${step}`;
+  console.log(message);
+  if (statusEl) statusEl.textContent = message;
+}
+
+bootLog('script start');
+
+const nativeClipboardModule = await import('./native-clipboard.js');
+bootLog('native-clipboard imported');
+const irValidatorModule = await import('../capture/ir-validator.js');
+bootLog('ir-validator imported');
+const probeAcceptanceModule = await import('./probe-acceptance.js');
+bootLog('probe-acceptance imported');
+
+const {
   buildProbeVariants,
   serializeFigmaStyleHtmlProbe,
   serializeFigmaStyleRichProbe,
   serializeSingleProbeVariantHtml,
-} from './native-clipboard.js';
-import { assertMinimalIR } from '../capture/ir-validator.js';
-import {
+} = nativeClipboardModule;
+const { assertMinimalIR } = irValidatorModule;
+const {
   exportAcceptanceMatrix,
   getVariantRecord,
   loadAcceptanceLog,
@@ -13,9 +30,8 @@ import {
   saveAcceptanceLog,
   setVariantNotes,
   setVariantVerdict,
-} from './probe-acceptance.js';
+} = probeAcceptanceModule;
 
-const statusEl = document.getElementById('status');
 const variantMatrixEl = document.getElementById('variantMatrix');
 const variantRowsEl = document.getElementById('variantRows');
 const bestProbeBtn = document.getElementById('bestProbeBtn');
@@ -39,6 +55,8 @@ window.addEventListener('unhandledrejection', (event) => {
   console.error('[html2fig popup] unhandled rejection', event?.reason);
   if (statusEl) statusEl.textContent = `[popup] unhandled rejection: ${reason}`;
 });
+
+bootLog('event handlers attached');
 
 let lastCapturedData = null;
 let lastProbeVariants = [];
