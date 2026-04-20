@@ -30,15 +30,6 @@
       font-weight:600;
       margin-bottom:6px;
     }
-    select {
-      width:100%;
-      padding:8px 10px;
-      border-radius:8px;
-      border:1px solid #cbd2d9;
-      margin-bottom:12px;
-      font-size:12px;
-      background:#fff;
-    }
     .row {
       display: flex;
       gap: 8px;
@@ -138,24 +129,14 @@
 </head>
 <body>
   <h1>html2fig capture</h1>
-  <p>Capture the current page and copy a test payload to the clipboard for Figma paste experiments.</p>
-  <label for="mode">Clipboard payload mode</label>
-  <select id="mode">
-    <option value="json">JSON (text/plain)</option>
-    <option value="html">HTML wrapper (text/html)</option>
-    <option value="svg">SVG snapshot (text/plain + text/html)</option>
-    <option value="rich">Experimental rich clipboard</option>
-    <option value="figma-html">Figma wrapper HTML probe</option>
-    <option value="figma-html-rich">Figma wrapper rich multi-mime probe</option>
-  </select>
+  <p>Capture the current page and copy the default Figma native-paste test payload.</p>
   <div class="row">
-    <button class="primary" id="captureBtn">Copy Current Page</button>
-    <button class="secondary" id="captureAppBtn">Copy #app</button>
+    <button class="primary" id="captureBtn">Prepare Figma Test Payload</button>
   </div>
+  <button class="primary" id="bestProbeBtn" type="button" style="margin-top:12px;width:100%;display:none;">Copy Figma Test Payload</button>
   <div class="matrix" id="variantMatrix" hidden>
     <div class="matrix-title">Native paste probe</div>
     <div class="toolbar">
-      <button class="primary mini" id="bestProbeBtn" type="button">Copy Figma Test Payload</button>
       <button class="secondary mini" id="exportMatrixBtn" type="button">Export Notes</button>
     </div>
     <div class="notes-box">

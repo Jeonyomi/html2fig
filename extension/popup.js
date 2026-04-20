@@ -16,7 +16,6 @@ import {
 } from './probe-acceptance.js';
 
 const statusEl = document.getElementById('status');
-const modeEl = document.getElementById('mode');
 const variantMatrixEl = document.getElementById('variantMatrix');
 const variantRowsEl = document.getElementById('variantRows');
 const bestProbeBtn = document.getElementById('bestProbeBtn');
@@ -145,25 +144,31 @@ async function captureData(tabId, selector) {
   return result.data;
 }
 
-async function runCapture(selector) {
+async function runCapture() {
   try {
-    statusEl.textContent = 'Preparing capture…';
+    statusEl.textContent = 'Preparing Figma test payload…';
     const tab = await getCurrentTab();
+    statusEl.textContent = 'Injecting capture helpers…';
     await injectCaptureScript(tab.id);
-    const mode = modeEl.value;
-    const data = await captureData(tab.id, selector);
+    statusEl.textContent = 'Capturing current page…';
+    const data = await captureData(tab.id, null);
     assertMinimalIR(data);
     lastCapturedData = data;
-    await writePayloadToClipboard(data, mode);
+    lastProbeVariants = buildProbeVariants(data);
     renderVariantMatrix({ lastCapturedData, lastProbeVariants, acceptanceLog, variantMatrixEl, variantRowsEl });
-    statusEl.textContent = `Copied ${mode} payload for:\n${data?.meta?.title || 'Untitled Page'}\nNow try Ctrl+V in Figma.`;
+    if (bestProbeBtn) bestProbeBtn.style.display = 'block';
+    if (variantNotesEl) {
+      const preferredLabel = getPreferredProbeLabel();
+      variantNotesEl.value = preferredLabel ? getVariantRecord(acceptanceLog, preferredLabel).notes || '' : '';
+    }
+    statusEl.textContent = `Prepared Figma test payload for:\n${data?.meta?.title || 'Untitled Page'}\nNow click Copy Figma Test Payload, then paste into Figma.`;
   } catch (error) {
-    statusEl.textContent = `Capture failed: ${error.message}`;
+    console.error('[html2fig popup] prepare failed', error);
+    statusEl.textContent = `Prepare failed: ${error.message}`;
   }
 }
 
-document.getElementById('captureBtn').addEventListener('click', () => runCapture(null));
-document.getElementById('captureAppBtn').addEventListener('click', () => runCapture('#app'));
+document.getElementById('captureBtn').addEventListener('click', () => runCapture());
 bestProbeBtn.addEventListener('click', async () => {
   try {
     if (!lastCapturedData) {
