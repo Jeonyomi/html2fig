@@ -37,9 +37,36 @@ function extractBackgroundImage(style) {
   return match ? match[2] : null;
 }
 
+/**
+ * Extract the first solid color from a CSS gradient string.
+ * e.g. "linear-gradient(135deg, #102a43 0%, #1a3a5c 100%)" → {r,g,b,a}
+ */
+function extractGradientFirstColor(bgImage) {
+  if (!bgImage || bgImage === 'none') return null;
+  // Match first hex or rgb/rgba color in the gradient
+  const hexMatch = bgImage.match(/#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b/);
+  if (hexMatch) {
+    let hex = hexMatch[1];
+    if (hex.length === 3) hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+    const r = parseInt(hex.slice(0, 2), 16) / 255;
+    const g = parseInt(hex.slice(2, 4), 16) / 255;
+    const b = parseInt(hex.slice(4, 6), 16) / 255;
+    return { r, g, b, a: 1, css: `#${hex}` };
+  }
+  const rgbMatch = bgImage.match(/rgba?\(([^)]+)\)/i);
+  if (rgbMatch) return colorToFigma(`${rgbMatch[0]}`);
+  return null;
+}
+
 function extractCommonStyle(el, style) {
+  // Resolve background color: prefer solid backgroundColor, fall back to first gradient color
+  let backgroundColor = colorToFigma(style.backgroundColor);
+  if (!backgroundColor && style.backgroundImage && style.backgroundImage !== 'none') {
+    backgroundColor = extractGradientFirstColor(style.backgroundImage);
+  }
+
   return {
-    backgroundColor: colorToFigma(style.backgroundColor),
+    backgroundColor,
     backgroundImage: extractBackgroundImage(style),
     color: colorToFigma(style.color),
     borderRadius: {
