@@ -195,6 +195,24 @@ function makeElementNode(irNode, parentGuid, position, localID, hasChildren, par
     const paint = solidPaint(style.backgroundColor);
     if (paint) nc.fillPaints.push(paint);
   }
+
+  // Background image: CSS url() images can't be embedded in the clipboard without
+  // fetching the bytes and uploading to Figma's asset store. Use a neutral fill
+  // as a visual placeholder so the frame area is not invisible.
+  // CSS gradients are already handled via extractGradientFirstColor → backgroundColor.
+  if (irNode.backgroundImageNode && irNode.backgroundImageNode.src) {
+    if (nc.fillPaints.length === 0) {
+      // Light gray placeholder to signal "image goes here"
+      nc.fillPaints.push({
+        type: 'SOLID',
+        color: { r: 0.82, g: 0.82, b: 0.82, a: 1 },
+        opacity: 1,
+        visible: true,
+        blendMode: 'NORMAL',
+      });
+    }
+  }
+
   if (nc.fillPaints.length === 0) {
     // Transparent fill so the node is visible
     nc.fillPaints.push({ type: 'SOLID', color: { r: 1, g: 1, b: 1, a: 0 }, opacity: 0, visible: true, blendMode: 'NORMAL' });
@@ -328,6 +346,11 @@ function makeTextNode(irNode, parentGuid, position, localID, parentOffset = { x:
         listStartOffset: 0,
         isFirstLineOfList: false,
       }],
+    },
+    // Pre-computed layout hint. Figma recomputes with WIDTH_AND_HEIGHT but
+    // providing layoutSize prevents a zero-size initial render on first paint.
+    derivedTextData: {
+      layoutSize: { x: Math.max(1, rect.width), y: Math.max(1, rect.height) },
     },
     fillPaints: [],
     strokePaints: [],
