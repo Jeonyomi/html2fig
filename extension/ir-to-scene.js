@@ -230,7 +230,10 @@ function makeElementNode(irNode, parentGuid, position, localID, hasChildren, par
 
   // FRAME-specific layout
   if (nodeType === 'FRAME') {
-    nc.clipsContent = style.overflow === 'hidden';
+    // Disable frame mask (clipping) by default to avoid hiding child text nodes
+    // whose Figma font metrics may differ slightly from browser metrics.
+    // Only clip when the element explicitly has overflow:hidden.
+    nc.frameMaskDisabled = style.overflow !== 'hidden';
   }
 
   return nc;
@@ -302,7 +305,7 @@ function makeTextNode(irNode, parentGuid, position, localID, parentOffset = { x:
     strokeWeight: 1,
     strokeAlign: 'OUTSIDE',
     strokeJoin: 'MITER',
-    textAutoResize: 'HEIGHT',
+    textAutoResize: 'WIDTH_AND_HEIGHT',
     textUserLayoutVersion: 5,
     textExplicitLayoutVersion: 1,
     detachOpticalSizeFromFontSize: true,
