@@ -53,6 +53,43 @@ function solidPaint(colorObj, opacity = 1) {
   };
 }
 
+// ─── Font family normalization ────────────────────────────────────────────────
+// Maps CSS font families (including Windows/Office fonts) to Figma-available ones.
+// Figma ships with Inter, Roboto, and a handful of others by default.
+
+const FONT_MAP = {
+  // Office / Windows fonts → Inter
+  'aptos': 'Inter',
+  'calibri': 'Inter',
+  'cambria': 'Georgia',
+  'segoe ui': 'Inter',
+  'segoe': 'Inter',
+  'tahoma': 'Inter',
+  'verdana': 'Inter',
+  'trebuchet ms': 'Inter',
+  'arial': 'Roboto',
+  'helvetica neue': 'Roboto',
+  'helvetica': 'Roboto',
+  // Serif
+  'times new roman': 'Georgia',
+  'times': 'Georgia',
+  'georgia': 'Georgia',
+  // Mono
+  'courier new': 'Roboto Mono',
+  'courier': 'Roboto Mono',
+  'consolas': 'Roboto Mono',
+  'monaco': 'Roboto Mono',
+  'menlo': 'Roboto Mono',
+};
+
+function normalizeFontFamily(cssFontFamily) {
+  if (!cssFontFamily) return 'Inter';
+  // Take first family from comma-separated list, strip quotes
+  const first = cssFontFamily.split(',')[0].trim().replace(/['"]/g, '');
+  const mapped = FONT_MAP[first.toLowerCase()];
+  return mapped || first || 'Inter';
+}
+
 // ─── IR node tree helpers ─────────────────────────────────────────────────────
 
 /**
@@ -127,10 +164,14 @@ function makeInternalCanvas() {
  * @param {string} position      Fractional-index position string
  * @param {number} localID       This node's localID
  * @param {boolean} hasChildren  Whether the IR node has children
+ * @param {{x:number,y:number}} parentOffset  Parent's absolute page coords (subtracted to get local coords)
  */
-function makeElementNode(irNode, parentGuid, position, localID, hasChildren) {
+function makeElementNode(irNode, parentGuid, position, localID, hasChildren, parentOffset = { x: 0, y: 0 }) {
   const { rect, style = {} } = irNode;
   const nodeType = hasChildren ? 'FRAME' : 'ROUNDED_RECTANGLE';
+  // Local position = absolute page coords minus parent's absolute origin
+  const localX = rect.x - parentOffset.x;
+  const localY = rect.y - parentOffset.y;
 
   const nc = {
     guid: guid(SESSION_CONTENT, localID),
@@ -141,7 +182,7 @@ function makeElementNode(irNode, parentGuid, position, localID, hasChildren) {
     visible: true,
     opacity: typeof style.opacity === 'number' ? style.opacity : 1,
     size: { x: Math.max(1, rect.width), y: Math.max(1, rect.height) },
-    transform: { m00: 1, m01: 0, m02: rect.x, m10: 0, m11: 1, m12: rect.y },
+    transform: { m00: 1, m01: 0, m02: localX, m10: 0, m11: 1, m12: localY },
     strokeWeight: 1,
     strokeAlign: 'INSIDE',
     strokeJoin: 'MITER',
@@ -197,9 +238,12 @@ function makeElementNode(irNode, parentGuid, position, localID, hasChildren) {
 
 /**
  * Convert an IR text node to a Figma TEXT node change.
+ * @param {{x:number,y:number}} parentOffset  Parent's absolute page coords
  */
-function makeTextNode(irNode, parentGuid, position, localID) {
+function makeTextNode(irNode, parentGuid, position, localID, parentOffset = { x: 0, y: 0 }) {
   const { rect, style = {}, text = '' } = irNode;
+  const localX = rect.x - parentOffset.x;
+  const localY = rect.y - parentOffset.y;
 
   // Map fontWeight string to Figma style name
   const fw = parseInt(style.fontWeight, 10) || 400;
@@ -234,7 +278,7 @@ function makeTextNode(irNode, parentGuid, position, localID) {
   }
 
   const fontSize = style.fontSize || 12;
-  const fontFamily = style.fontFamily ? style.fontFamily.split(',')[0].trim().replace(/['"]/g, '') : 'Inter';
+  const fontFamily = normalizeFontFamily(style.fontFamily);
 
   // Map textAlign to Figma's enum
   const alignMap = { left: 'LEFT', center: 'CENTER', right: 'RIGHT', justify: 'JUSTIFIED' };
@@ -249,7 +293,7 @@ function makeTextNode(irNode, parentGuid, position, localID) {
     visible: true,
     opacity: typeof style.opacity === 'number' ? style.opacity : 1,
     size: { x: Math.max(1, rect.width), y: Math.max(1, rect.height) },
-    transform: { m00: 1, m01: 0, m02: rect.x, m10: 0, m11: 1, m12: rect.y },
+    transform: { m00: 1, m01: 0, m02: localX, m10: 0, m11: 1, m12: localY },
     fontSize,
     fontName: { family: fontFamily, style: fontStyle, postscript: '' },
     textAlignHorizontal,
@@ -319,8 +363,9 @@ export function irToNodeChanges(data) {
    * @param {object} irNode
    * @param {object} parentFigmaGuid
    * @param {number} siblingIndex
+   * @param {{x:number,y:number}} parentOffset  Parent's absolute page coords for relative positioning
    */
-  function convertNode(irNode, parentFigmaGuid, siblingIndex) {
+  function convertNode(irNode, parentFigmaGuid, siblingIndex, parentOffset) {
     const children = childrenOf.get(irNode.id) || [];
     const myGuid = idToGuid.get(irNode.id) || guid(SESSION_CONTENT, nextLocalID++);
     idToGuid.set(irNode.id, myGuid);
@@ -328,21 +373,25 @@ export function irToNodeChanges(data) {
 
     let nc;
     if (irNode.type === 'text') {
-      nc = makeTextNode(irNode, parentFigmaGuid, position, myGuid.localID);
+      nc = makeTextNode(irNode, parentFigmaGuid, position, myGuid.localID, parentOffset);
     } else {
-      nc = makeElementNode(irNode, parentFigmaGuid, position, myGuid.localID, children.length > 0);
+      nc = makeElementNode(irNode, parentFigmaGuid, position, myGuid.localID, children.length > 0, parentOffset);
     }
     contentChanges.push(nc);
 
+    // Children's parentOffset = this node's absolute rect origin
+    // (so their coords become relative to this frame)
+    const myOffset = { x: irNode.rect.x, y: irNode.rect.y };
+
     // Recurse into children
     children.forEach((child, childIdx) => {
-      // Pre-assign child GUID so children of this node get sequential IDs
       idToGuid.set(child.id, guid(SESSION_CONTENT, nextLocalID++));
-      convertNode(child, myGuid, childIdx);
+      convertNode(child, myGuid, childIdx, myOffset);
     });
   }
 
   // Convert the root node (position "!" = first child of canvas)
+  // Root is placed on the canvas using its absolute page coords directly.
   const rootIrNode = byId.get(root.id) || {
     id: root.id,
     type: root.type,
@@ -352,20 +401,20 @@ export function irToNodeChanges(data) {
     style: {},
     children: [],
   };
-  // Ensure root GUID is pre-assigned to 1
   idToGuid.set(root.id, rootGuid);
 
   const rootChildren = childrenOf.get(root.id) || [];
-  const rootNC = makeElementNode(rootIrNode, canvasGuid, '!', rootGuid.localID, rootChildren.length > 0);
+  // Root's parent is the CANVAS, so its offset is {0,0} (canvas origin)
+  const rootNC = makeElementNode(rootIrNode, canvasGuid, '!', rootGuid.localID, rootChildren.length > 0, { x: 0, y: 0 });
   contentChanges.push(rootNC);
 
-  // Pre-assign IDs for root's immediate children
+  // Root children: their parent offset is root's absolute coords
+  const rootOffset = { x: root.rect.x, y: root.rect.y };
   rootChildren.forEach((child) => {
     idToGuid.set(child.id, guid(SESSION_CONTENT, nextLocalID++));
   });
-
   rootChildren.forEach((child, idx) => {
-    convertNode(child, rootGuid, idx);
+    convertNode(child, rootGuid, idx, rootOffset);
   });
 
   // Build the complete message
