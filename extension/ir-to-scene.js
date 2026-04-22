@@ -248,8 +248,7 @@ function makeTextNode(irNode, parentGuid, position, localID, parentOffset = { x:
   // Map fontWeight string to Figma style name
   const fw = parseInt(style.fontWeight, 10) || 400;
   let fontStyle = 'Regular';
-  if (fw >= 700) fontStyle = 'Bold';
-  else if (fw >= 600) fontStyle = 'SemiBold';
+  if (fw >= 600) fontStyle = 'Bold';
   else if (fw >= 500) fontStyle = 'Medium';
 
   // Map lineHeight string (e.g. "1.5", "24px", "150%") to Figma lineHeight
