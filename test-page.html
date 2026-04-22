@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>html2fig Test Page</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Inter, Arial, sans-serif; background: #f5f7fa; color: #102a43; padding: 32px; }
+    h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; color: #102a43; }
+    p.sub { font-size: 14px; color: #627d98; margin-bottom: 32px; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 32px; }
+    .card { background: #fff; border-radius: 12px; padding: 20px; border: 1px solid #d9e2ec; }
+    .card-title { font-size: 13px; font-weight: 700; color: #486581; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px; }
+    .card-value { font-size: 28px; font-weight: 700; color: #102a43; }
+    .card-note { font-size: 12px; color: #9fb3c8; margin-top: 4px; }
+    .section { background: #fff; border-radius: 12px; padding: 24px; border: 1px solid #d9e2ec; margin-bottom: 16px; }
+    .section h2 { font-size: 16px; font-weight: 700; margin-bottom: 16px; color: #102a43; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; }
+    .tag { background: #0f62fe; color: #fff; border-radius: 6px; padding: 6px 14px; font-size: 12px; font-weight: 600; }
+    .tag.green { background: #24a148; }
+    .tag.orange { background: #e07b00; }
+    .tag.red { background: #da1e28; }
+    .tag.gray { background: #697077; }
+    .bar-wrap { margin-top: 12px; }
+    .bar-label { font-size: 12px; color: #627d98; margin-bottom: 4px; display: flex; justify-content: space-between; }
+    .bar-bg { background: #d9e2ec; border-radius: 4px; height: 8px; }
+    .bar-fill { height: 8px; border-radius: 4px; background: #0f62fe; }
+    .hero { background: linear-gradient(135deg, #102a43 0%, #1a3a5c 100%); border-radius: 12px; padding: 32px; color: #fff; margin-bottom: 32px; }
+    .hero h2 { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+    .hero p { font-size: 14px; color: #9fb3c8; }
+    .pill-row { display: flex; gap: 8px; margin-top: 16px; }
+    .pill { background: rgba(255,255,255,.15); border-radius: 20px; padding: 4px 12px; font-size: 12px; color: #fff; }
+  </style>
+</head>
+<body>
+  <h1>html2fig — Capture Test Page</h1>
+  <p class="sub">밝은 배경 페이지로 네이티브 Figma 붙여넣기 품질 검증</p>
+
+  <!-- Hero banner -->
+  <div class="hero">
+    <h2>System Overview Dashboard</h2>
+    <p>Real-time status across all GNTB subsystems — last updated just now</p>
+    <div class="pill-row">
+      <span class="pill">Production</span>
+      <span class="pill">v7.2.1</span>
+      <span class="pill">6 Flows Active</span>
+    </div>
+  </div>
+
+  <!-- KPI cards -->
+  <div class="grid">
+    <div class="card">
+      <div class="card-title">Active Flows</div>
+      <div class="card-value">6</div>
+      <div class="card-note">Flow A – F running</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Systems Online</div>
+      <div class="card-value">10</div>
+      <div class="card-note">100% availability</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Transactions / hr</div>
+      <div class="card-value">2,840</div>
+      <div class="card-note">+12% from yesterday</div>
+    </div>
+  </div>
+
+  <!-- Status section -->
+  <div class="section">
+    <h2>System Status</h2>
+    <div class="row">
+      <span class="tag green">GNTB-API ✓</span>
+      <span class="tag green">Auth ✓</span>
+      <span class="tag green">Gateway ✓</span>
+      <span class="tag orange">Reporting ⚠</span>
+      <span class="tag green">Storage ✓</span>
+      <span class="tag green">Scheduler ✓</span>
+      <span class="tag gray">Analytics —</span>
+      <span class="tag green">Notify ✓</span>
+      <span class="tag red">Legacy-B ✗</span>
+      <span class="tag green">CDN ✓</span>
+    </div>
+  </div>
+
+  <!-- Progress bars -->
+  <div class="section">
+    <h2>Flow Progress</h2>
+    <div class="bar-wrap">
+      <div class="bar-label"><span>Flow A — Registration</span><span>82%</span></div>
+      <div class="bar-bg"><div class="bar-fill" style="width:82%"></div></div>
+    </div>
+    <div class="bar-wrap" style="margin-top:12px">
+      <div class="bar-label"><span>Flow B — Verification</span><span>65%</span></div>
+      <div class="bar-bg"><div class="bar-fill" style="width:65%;background:#24a148"></div></div>
+    </div>
+    <div class="bar-wrap" style="margin-top:12px">
+      <div class="bar-label"><span>Flow C — Issuance</span><span>41%</span></div>
+      <div class="bar-bg"><div class="bar-fill" style="width:41%;background:#e07b00"></div></div>
+    </div>
+  </div>
+</body>
+</html>
