@@ -1,12 +1,23 @@
 {
   "manifest_version": 3,
   "name": "html2fig capture",
-  "version": "0.1.1",
-  "description": "Capture the current page into html2fig JSON and copy it to the clipboard for Figma import.",
+  "version": "0.2.0",
+  "description": "Capture the current page into html2fig JSON and copy it to the clipboard for Figma native paste.",
   "permissions": ["activeTab", "scripting", "clipboardWrite"],
   "host_permissions": ["<all_urls>"],
   "action": {
     "default_title": "html2fig capture",
     "default_popup": "popup.html"
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "tmp_schema_spike/rectangle-payload.html",
+        "figma-schema.bin.b64",
+        "kiwi-esm.js",
+        "pako.esm.mjs"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ]
 }

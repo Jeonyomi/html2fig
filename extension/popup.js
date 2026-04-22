@@ -20,6 +20,8 @@ const {
   serializeFigmaStyleHtmlProbe,
   serializeFigmaStyleRichProbe,
   serializeSingleProbeVariantHtml,
+  serializeFigmaNativeScene,
+  testKiwiRoundTrip,
 } = nativeClipboardModule;
 const { assertMinimalIR } = irValidatorModule;
 const {
@@ -34,7 +36,10 @@ const {
 
 const variantMatrixEl = document.getElementById('variantMatrix');
 const variantRowsEl = document.getElementById('variantRows');
+const nativeSceneBtn = document.getElementById('nativeSceneBtn');
 const bestProbeBtn = document.getElementById('bestProbeBtn');
+const schemaRectBtn = document.getElementById('schemaRectBtn');
+const kiwiTestBtn = document.getElementById('kiwiTestBtn');
 const exportMatrixBtn = document.getElementById('exportMatrixBtn');
 const variantNotesEl = document.getElementById('variantNotes');
 
@@ -76,6 +81,16 @@ function escapeHtml(text) {
   return String(text).replace(/[&<>]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]));
 }
 
+async function copySchemaRectangleSpike() {
+  const response = await fetch(chrome.runtime.getURL('../tmp_schema_spike/rectangle-payload.html'));
+  if (!response.ok) throw new Error(`Failed to load schema spike payload: ${response.status}`);
+  const html = await response.text();
+  const item = new ClipboardItem({
+    'text/plain': new Blob(['schema rectangle spike'], { type: 'text/plain' }),
+    'text/html': new Blob([html], { type: 'text/html' }),
+  });
+  await navigator.clipboard.write([item]);
+}
 
 function serializeHtmlPayload(data) {
   const json = JSON.stringify(data);
@@ -247,6 +262,7 @@ async function runCapture() {
     lastCapturedData = data;
     lastProbeVariants = buildProbeVariants(data);
     renderVariantMatrix({ lastCapturedData, lastProbeVariants: getPrimaryProbeVariants(), acceptanceLog, variantMatrixEl, variantRowsEl });
+    if (nativeSceneBtn) nativeSceneBtn.style.display = 'block';
     if (bestProbeBtn) bestProbeBtn.style.display = 'block';
     if (variantNotesEl) {
       const preferredLabel = getPreferredProbeLabel();
@@ -280,6 +296,54 @@ bestProbeBtn.addEventListener('click', async () => {
     statusEl.textContent = `Copy failed: ${error.message}`;
   }
 });
+schemaRectBtn?.addEventListener('click', async () => {
+  try {
+    await copySchemaRectangleSpike();
+    statusEl.textContent = 'Copied schema rectangle spike. Paste into Figma and note whether anything appears.';
+  } catch (error) {
+    statusEl.textContent = `Schema spike copy failed: ${error.message}`;
+  }
+});
+
+nativeSceneBtn?.addEventListener('click', async () => {
+  try {
+    if (!lastCapturedData) {
+      statusEl.textContent = 'Capture a page first.';
+      return;
+    }
+    statusEl.textContent = 'Encoding with kiwi pipeline…';
+    const html = await serializeFigmaNativeScene(lastCapturedData, escapeHtml);
+    const item = new ClipboardItem({
+      'text/plain': new Blob([lastCapturedData?.meta?.title || 'html2fig scene'], { type: 'text/plain' }),
+      'text/html': new Blob([html], { type: 'text/html' }),
+    });
+    await navigator.clipboard.write([item]);
+    const nodeCount = lastCapturedData?.nodes?.length || 0;
+    statusEl.textContent = `⭐ Native scene copied (${nodeCount} nodes). Paste into Figma!`;
+  } catch (error) {
+    console.error('[html2fig] native scene copy failed', error);
+    statusEl.textContent = `Native scene failed: ${error.message}`;
+  }
+});
+
+kiwiTestBtn?.addEventListener('click', async () => {
+  try {
+    if (!lastCapturedData) {
+      statusEl.textContent = 'Capture a page first, then run the round-trip test.';
+      return;
+    }
+    statusEl.textContent = 'Running kiwi round-trip test…';
+    const result = await testKiwiRoundTrip(lastCapturedData);
+    const nodeCount = result.decoded?.nodeChanges?.length || 0;
+    const types = result.decoded?.nodeChanges?.map((n) => n.type).join(', ') || '(none)';
+    console.log('[html2fig] kiwi round-trip result:', result);
+    statusEl.textContent = `Kiwi round-trip OK — ${nodeCount} nodeChanges: ${types}`;
+  } catch (error) {
+    console.error('[html2fig] kiwi test failed', error);
+    statusEl.textContent = `Kiwi test failed: ${error.message}`;
+  }
+});
+
 exportMatrixBtn.addEventListener('click', async () => {
   try {
     const exported = exportAcceptanceMatrix({ lastCapturedData, lastProbeVariants, acceptanceLog });
