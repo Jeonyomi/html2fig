@@ -3,37 +3,20 @@
  * Browser-compatible Figma clipboard archive builder.
  *
  * Uses:
- *  - kiwi-schema/kiwi-esm.js  (pure JS, no Node.js deps)
- *  - pako/dist/pako.esm.mjs   (deflate compression)
- *  - figma-schema.bin.b64     (inline base64 schema extracted from real Figma clipboard)
+ *  - figma-schema-compiled.js  pre-compiled schema (NO eval / no compileSchema)
+ *  - pako/dist/pako.esm.mjs    deflate compression
  *
- * Produces fig-kiwi archives (version 15, deflateRaw compression) that Figma
- * can read on paste, matching the format used by the fig-kiwi library.
+ * The compiled schema was generated at build time via kiwi-schema's
+ * compileSchemaJS(), so it requires NO eval / new Function at runtime.
+ * This makes it fully CSP-safe for Chrome MV3 extensions.
+ *
+ * Produces fig-kiwi archives (version 15, deflateRaw compression).
  */
 
-// Dynamic imports resolved relative to extension root at runtime
-let _kiwi = null;
-let _pako = null;
-let _compiledSchema = null;
+import { encodeMessage as kiwiEncode, decodeMessage as kiwiDecode } from './figma-schema-compiled.js';
+import { deflateRaw } from './pako.esm.mjs';
 
-async function loadDeps() {
-  if (_compiledSchema) return _compiledSchema;
-
-  const kiwiMod = await import('./kiwi-esm.js');
-  const pakoMod = await import('./pako.esm.mjs');
-  _kiwi = kiwiMod;
-  _pako = pakoMod;
-
-  // Load schema base64 and decode
-  const schemaB64Response = await fetch(new URL('./figma-schema.bin.b64', import.meta.url).href);
-  const schemaB64 = await schemaB64Response.text();
-  const schemaDeflated = b64ToU8(schemaB64.trim());
-  const schemaBytes = _pako.inflateRaw(schemaDeflated);
-  const schema = _kiwi.decodeBinarySchema(schemaBytes);
-  const compiled = _kiwi.compileSchema(schema);
-  _compiledSchema = { compiled, schema, schemaBytes };
-  return _compiledSchema;
-}
+// ── Base64 helpers ────────────────────────────────────────────────────────────
 
 function b64ToU8(b64) {
   const binary = atob(b64);
@@ -50,6 +33,22 @@ function u8ToB64(u8) {
   }
   return btoa(binary);
 }
+
+// ── Schema chunk ──────────────────────────────────────────────────────────────
+// The schema bytes are already deflate-compressed in figma-schema.bin.b64.
+// We load them once and reuse for every archive we write.
+
+let _schemaChunkPromise = null;
+
+function loadSchemaChunk() {
+  if (_schemaChunkPromise) return _schemaChunkPromise;
+  _schemaChunkPromise = fetch(new URL('./figma-schema.bin.b64', import.meta.url).href)
+    .then((r) => r.text())
+    .then((b64) => b64ToU8(b64.trim()));  // already deflate-compressed
+  return _schemaChunkPromise;
+}
+
+// ── Archive writer ────────────────────────────────────────────────────────────
 
 function writeArchive(schemaDeflated, messageDeflated, version = 15) {
   const PRELUDE = 'fig-kiwi';
@@ -71,60 +70,43 @@ function writeArchive(schemaDeflated, messageDeflated, version = 15) {
   return buf;
 }
 
+// ── Public API ────────────────────────────────────────────────────────────────
+
 /**
  * Encode a NODE_CHANGES message into a fig-kiwi archive base64 string.
- * @param {object} message  The kiwi NODE_CHANGES message object.
+ * @param {object} message  The NODE_CHANGES message object.
  * @returns {Promise<string>} Base64-encoded archive ready for Figma clipboard.
  */
 export async function encodeMessage(message) {
-  const { compiled, schemaBytes } = await loadDeps();
-
-  // Encode message bytes
-  const msgBytes = compiled.encodeMessage(message);
-
-  // Compress both chunks with deflateRaw (version 15 format)
-  const schemaDeflated = _pako.deflateRaw(schemaBytes);
-  const msgDeflated = _pako.deflateRaw(msgBytes);
-
+  const schemaDeflated = await loadSchemaChunk();
+  const msgBytes = kiwiEncode(message);
+  const msgDeflated = deflateRaw(msgBytes);
   const archive = writeArchive(schemaDeflated, msgDeflated, 15);
   return u8ToB64(archive);
 }
 
 /**
- * Encode a NODE_CHANGES message using the raw schema chunk from real Figma data.
- * This keeps the schema chunk as-is (already deflate-compressed) and only
- * re-encodes the message.
- * @param {object} message
- * @returns {Promise<string>} Base64-encoded archive.
+ * Decode a fig-kiwi archive base64 string back to a NODE_CHANGES message.
+ * Useful for verification / debugging.
  */
-export async function encodeMessageWithRealSchema(message) {
-  const { compiled, schemaBytes } = await loadDeps();
-
-  // Re-compress schema
-  const schemaDeflated = _pako.deflateRaw(schemaBytes);
-
-  // Encode and compress message
-  const msgBytes = compiled.encodeMessage(message);
-  const msgDeflated = _pako.deflateRaw(msgBytes);
-
-  const archive = writeArchive(schemaDeflated, msgDeflated, 15);
-  return u8ToB64(archive);
+export function decodeMessage(bytes) {
+  return kiwiDecode(bytes);
 }
 
 /**
  * Verify that the kiwi pipeline round-trips correctly in the browser.
- * Returns decoded message for inspection.
+ * @param {object} message  Input message.
+ * @returns {object} Decoded message for inspection.
  */
 export async function testRoundTrip(message) {
-  const { compiled } = await loadDeps();
-  const encoded = compiled.encodeMessage(message);
-  const decoded = compiled.decodeMessage(encoded);
+  const encoded = kiwiEncode(message);
+  const decoded = kiwiDecode(encoded);
   return decoded;
 }
 
 export async function isReady() {
   try {
-    await loadDeps();
+    await loadSchemaChunk();
     return true;
   } catch (e) {
     return false;

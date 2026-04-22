@@ -14,6 +14,7 @@
       "resources": [
         "tmp_schema_spike/rectangle-payload.html",
         "figma-schema.bin.b64",
+        "figma-schema-compiled.js",
         "kiwi-esm.js",
         "pako.esm.mjs"
       ],
